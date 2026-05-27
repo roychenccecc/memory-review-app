@@ -1379,7 +1379,7 @@ function openEditStudy(idValue) {
   formField(form, "title").value = item.title || "";
   formField(form, "date").value = item.date || toDateInput(new Date());
   formField(form, "studyKind").value = item.studyKind || "new";
-  formField(form, "tags").value = tagsFor(item.tagIds).map(tagPath).join("，");
+  formField(form, "tags").value = tagPathList(item.tagIds).join("，");
   formField(form, "notes").value = item.notes || "";
   setText("studyModalTitle", "编辑学习记录");
   setText("studySubmitBtn", "保存修改");
@@ -1398,7 +1398,7 @@ function openEditMistake(idValue) {
   formField(form, "question").value = item.question || "";
   formField(form, "answer").value = item.answer || "";
   formField(form, "reason").value = item.reason || "";
-  formField(form, "tags").value = tagsFor(item.tagIds).map(tagPath).join("，");
+  formField(form, "tags").value = tagPathList(item.tagIds).join("，");
   clearMistakeImage();
   if (item.image) showMistakeImagePreview(item.image);
   setText("mistakeModalTitle", "编辑错题");
@@ -1612,8 +1612,8 @@ function exportJson() {
 function exportCsv() {
   const rows = [
     ["类型", "学习记录类型", "标题/位置", "日期", "标签", "记忆分", "下次复习", "备注/错因"],
-    ...state.study.map((item) => ["学习", studyKindLabel(item), item.title, item.date, tagsFor(item.tagIds).map(tagPath).join(";"), currentScore(item), nextTaskDate("study", item.id) || "", item.notes || ""]),
-    ...state.mistakes.map((item) => ["错题", "", item.location || firstLine(item.question), item.date, tagsFor(item.tagIds).map(tagPath).join(";"), currentScore(item), nextTaskDate("mistake", item.id) || "", item.reason || ""]),
+    ...state.study.map((item) => ["学习", studyKindLabel(item), item.title, item.date, tagPathList(item.tagIds).join(";"), currentScore(item), nextTaskDate("study", item.id) || "", item.notes || ""]),
+    ...state.mistakes.map((item) => ["错题", "", item.location || firstLine(item.question), item.date, tagPathList(item.tagIds).join(";"), currentScore(item), nextTaskDate("mistake", item.id) || "", item.reason || ""]),
   ];
   download(`memory-review-${toDateInput(new Date())}.csv`, rows.map(csvRow).join("\n"), "text/csv;charset=utf-8");
 }
@@ -1712,6 +1712,10 @@ function tagsFor(ids = []) {
   return ids.map((tagId) => state.tags.find((tag) => tag.id === tagId)).filter(Boolean);
 }
 
+function tagPathList(ids = []) {
+  return tagsFor(ids).map((tag) => tagPath(tag));
+}
+
 function tagWithAncestors(tag) {
   const chain = [];
   let current = tag;
@@ -1753,12 +1757,12 @@ function nextTaskDate(type, sourceId) {
 
 function matchesStudy(item, query) {
   if (!query) return true;
-  return [item.title, item.notes, ...tagsFor(item.tagIds).map(tagPath)].join(" ").toLowerCase().includes(query);
+  return [item.title, item.notes, ...tagPathList(item.tagIds)].join(" ").toLowerCase().includes(query);
 }
 
 function matchesMistake(item, query) {
   if (!query) return true;
-  return [item.location, item.question, item.answer, item.reason, ...tagsFor(item.tagIds).map(tagPath)].join(" ").toLowerCase().includes(query);
+  return [item.location, item.question, item.answer, item.reason, ...tagPathList(item.tagIds)].join(" ").toLowerCase().includes(query);
 }
 
 function parseTags(value) {
