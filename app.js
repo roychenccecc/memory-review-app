@@ -228,7 +228,7 @@ function renderDashboard() {
   let visible = due;
   if (filter === "overdue") visible = overdue;
   if (filter === "cram") visible = cram;
-  if (filter === "all") visible = visibleTasks.filter((task) => task.status === "pending").slice(0, 80);
+  if (filter === "all") visible = due;
   visible = visible.sort(taskSort).slice(0, 80);
 
   document.getElementById("taskList").innerHTML = `
@@ -965,8 +965,8 @@ async function saveReview(event) {
   if (!item) return;
 
   const beforeScore = currentScore(item);
-  const delta = recallDelta(recallPercent);
-  const afterScore = clamp(beforeScore + delta, 0, 100);
+  const afterScore = averageRecentRecallScore(sourceType, sourceId, recallPercent);
+  const delta = afterScore - beforeScore;
   const previousIndex = item.currentIntervalIndex || 0;
   let nextIndex = previousIndex;
   let nextInterval = item.currentInterval || BASE_INTERVALS[previousIndex] || 1;
@@ -1145,14 +1145,24 @@ function priorityScore(item, cram) {
   return (100 - currentScore(item)) + IMPORTANCE_WEIGHT[itemImportance(item)] + (cram ? 20 : 0) - recencyPenalty;
 }
 
-function recallDelta(percent) {
-  return Math.round((clamp(Number(percent) || 0, 0, 100) - 80) * 0.75);
-}
-
 function resultFromPercent(percent) {
   if (percent >= 85) return "remembered";
   if (percent >= 40) return "unclear";
   return "forgotten";
+}
+
+function averageRecentRecallScore(sourceType, sourceId, currentPercent) {
+  const recentScores = [
+    clamp(Number(currentPercent) || 0, 0, 100),
+    ...state.logs
+      .filter((log) => log.sourceType === sourceType && log.sourceId === sourceId)
+      .sort((a, b) => (b.createdAt || b.date || "").localeCompare(a.createdAt || a.date || ""))
+      .map((log) => Number(log.recallPercent ?? log.afterScore))
+      .filter((score) => Number.isFinite(score))
+      .map((score) => clamp(score, 0, 100)),
+  ].slice(0, 10);
+  const total = recentScores.reduce((sum, score) => sum + score, 0);
+  return Math.round(total / recentScores.length);
 }
 
 function studyKindLabel(item) {
