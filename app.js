@@ -282,6 +282,9 @@ function renderReviewedTaskCard(task) {
         </div>
         ${task.notes ? `<p class="body-text">${escapeHtml(truncate(task.notes, 120))}</p>` : ""}
       </div>
+      <div class="card-actions">
+        <button class="small-button" onclick="openEditReview('${task.id}')">修改记录</button>
+      </div>
     </article>
   `;
 }
@@ -970,10 +973,20 @@ async function saveReview(event) {
   const sourceType = data.get("sourceType");
   const sourceId = data.get("sourceId");
   const taskId = data.get("taskId");
+  const logId = data.get("logId");
   const recallPercent = clamp(Number(data.get("recallPercent") || 0), 0, 100);
   const result = resultFromPercent(recallPercent);
   const item = findItem(sourceType, sourceId);
   if (!item) return;
+
+  if (logId) {
+    await updateReviewLog({ logId, sourceType, sourceId, taskId, recallPercent, result, notes: data.get("notes").trim() });
+    form.reset();
+    form.closest("dialog").close();
+    toast("复习记录已修改。");
+    render();
+    return;
+  }
 
   const beforeScore = currentScore(item);
   const afterScore = averageRecentRecallScore(sourceType, sourceId, recallPercent);
@@ -1043,6 +1056,44 @@ async function saveReview(event) {
   form.closest("dialog").close();
   toast(`已记录为“记住 ${recallPercent}%”，下一次复习已更新。`);
   render();
+}
+
+async function updateReviewLog({ logId, sourceType, sourceId, taskId, recallPercent, result, notes }) {
+  const log = state.logs.find((row) => row.id === logId);
+  const item = findItem(sourceType, sourceId);
+  if (!log || !item) return;
+  const beforeScore = Number(log.beforeScore ?? currentScore(item));
+  const afterScore = averageRecentRecallScore(sourceType, sourceId, recallPercent, logId);
+  item.memoryScore = afterScore;
+  item.updatedAt = now();
+  if (log.date === toDateInput(new Date())) item.lastReviewedAt = log.date;
+  await put(sourceType === "study" ? "study" : "mistakes", item);
+
+  log.result = result;
+  log.recallPercent = recallPercent;
+  log.notes = notes;
+  log.afterScore = afterScore;
+  log.delta = afterScore - beforeScore;
+  log.updatedAt = now();
+  await put("logs", log);
+
+  const doneTaskId = taskId || log.taskId;
+  if (doneTaskId && !doneTaskId.startsWith("cram-")) {
+    const task = state.tasks.find((row) => row.id === doneTaskId);
+    if (task) {
+      task.result = result;
+      task.recallPercent = recallPercent;
+      task.updatedAt = now();
+      await put("tasks", task);
+    }
+  }
+
+  for (const task of state.tasks.filter((row) => row.status === "pending" && row.sourceType === sourceType && row.sourceId === sourceId)) {
+    task.priority = priorityScore(item, Boolean(task.isCram));
+    task.updatedAt = now();
+    await put("tasks", task);
+  }
+  await loadState();
 }
 
 async function createNextTask(sourceType, item, fromDate, result = "") {
@@ -1162,11 +1213,11 @@ function resultFromPercent(percent) {
   return "forgotten";
 }
 
-function averageRecentRecallScore(sourceType, sourceId, currentPercent) {
+function averageRecentRecallScore(sourceType, sourceId, currentPercent, excludeLogId = "") {
   const recentScores = [
     clamp(Number(currentPercent) || 0, 0, 100),
     ...state.logs
-      .filter((log) => log.sourceType === sourceType && log.sourceId === sourceId)
+      .filter((log) => log.sourceType === sourceType && log.sourceId === sourceId && log.id !== excludeLogId)
       .sort((a, b) => (b.createdAt || b.date || "").localeCompare(a.createdAt || a.date || ""))
       .map((log) => Number(log.recallPercent ?? log.afterScore))
       .filter((score) => Number.isFinite(score))
@@ -1273,7 +1324,26 @@ function openReview(sourceType, sourceId, taskId) {
   form.sourceType.value = sourceType;
   form.sourceId.value = sourceId;
   form.taskId.value = taskId;
+  form.logId.value = "";
+  form.notes.value = "";
   setRecallPercent(80);
+  document.getElementById("reviewModal").showModal();
+}
+
+function openEditReview(logId) {
+  const log = state.logs.find((row) => row.id === logId);
+  if (!log) return;
+  const item = findItem(log.sourceType, log.sourceId);
+  if (!item) return;
+  const title = log.sourceType === "study" ? item.title : item.location || firstLine(item.question) || "未命名错题";
+  document.getElementById("reviewModalTitle").textContent = `修改复习记录：${title}`;
+  const form = document.getElementById("reviewForm");
+  form.sourceType.value = log.sourceType;
+  form.sourceId.value = log.sourceId;
+  form.taskId.value = log.taskId || "";
+  form.logId.value = log.id;
+  form.notes.value = log.notes || "";
+  setRecallPercent(log.recallPercent ?? log.afterScore ?? currentScore(item));
   document.getElementById("reviewModal").showModal();
 }
 
@@ -1791,6 +1861,7 @@ function toast(message) {
 }
 
 window.openReview = openReview;
+window.openEditReview = openEditReview;
 window.postponeTask = postponeTask;
 window.deleteItem = deleteItem;
 window.deleteTag = deleteTag;
