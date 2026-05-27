@@ -337,34 +337,41 @@
           <button class="secondary" id="addExistingMistakeTagBtn" type="button">添加到错题</button>
           <button class="secondary danger" id="deleteExistingMistakeTagBtn" type="button">删除此知识点</button>
         </div>
-        <div class="inline-tool mistake-create-tool">
-          <label>
-            新建错题标签/知识点
-            <input id="mistakeNewTagName" placeholder="如：选择题、简答题、B知识点" />
-          </label>
-          <label>
-            添加位置
-            <select id="mistakeNewTagMode">
-              <option value="root" selected>新主分支</option>
-              <option value="child">所选上级下的新分支</option>
-            </select>
-          </label>
-          <label>
-            上级知识点
-            <select id="mistakeNewTagParent" class="tag-parent-select">
-              <option value="">无上级</option>
-            </select>
-          </label>
-          <label>
-            重要性
-            <select id="mistakeNewTagImportance">
-              <option value="veryHigh">非常重要</option>
-              <option value="high">高</option>
-              <option value="medium" selected>中</option>
-              <option value="low">低</option>
-            </select>
-          </label>
-          <button class="secondary" id="createMistakeTagBtn" type="button">新建并选中</button>
+        <div class="tag-create-area">
+          <section class="tag-create-panel">
+            <div class="tag-create-head">
+              <h4>新建普通标签</h4>
+              <span>无需分类</span>
+            </div>
+            <div class="tag-builder-row">
+              <input id="mistakeSimpleTagName" placeholder="如：选择题、简答题" />
+              <select id="mistakeSimpleTagImportance" aria-label="错题普通标签重要性">
+                <option value="veryHigh">非常重要</option>
+                <option value="high">高</option>
+                <option value="medium" selected>中</option>
+                <option value="low">低</option>
+              </select>
+              <button class="secondary" id="createMistakeSimpleTagBtn" type="button">＋ 添加并选中</button>
+            </div>
+          </section>
+          <section class="tag-create-panel">
+            <div class="tag-create-head">
+              <h4>树状添加</h4>
+              <span>可输入，也可从已有分支选择</span>
+            </div>
+            <div class="tree-builder" id="mistakeTreeBuilder"></div>
+            <div class="tree-builder-actions">
+              <button class="secondary" id="addMistakeTreeLevelBtn" type="button">＋ 添加子标签</button>
+              <select id="mistakeTreeImportance" aria-label="错题树状标签重要性">
+                <option value="veryHigh">非常重要</option>
+                <option value="high">高</option>
+                <option value="medium" selected>中</option>
+                <option value="low">低</option>
+              </select>
+              <button class="primary" id="createMistakeTreeTagBtn" type="button">新建整条树并选中</button>
+            </div>
+            <p class="muted tag-tool-hint">例如第一格选“心理统计学”，点＋后写“方差分析”；也可以第一格直接写“数学-数字-1”。每一级右侧都能删除。</p>
+          </section>
         </div>
         <label>
           错题图片

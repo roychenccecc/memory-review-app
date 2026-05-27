@@ -158,10 +158,6 @@ button {
   grid-template-columns: minmax(220px, 1fr) auto auto;
 }
 
-#mistakeModal .mistake-create-tool {
-  grid-template-columns: minmax(180px, 1fr) minmax(140px, 0.6fr) minmax(150px, 0.7fr) 140px auto;
-}
-
 .delete-tool {
   display: grid;
   gap: 10px;

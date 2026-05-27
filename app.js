@@ -24,7 +24,7 @@ let state = {
   logs: [],
   tasks: [],
 };
-let studyTreeLevelCounter = 0;
+const treeLevelCounters = { study: 0, mistake: 0 };
 
 document.addEventListener("DOMContentLoaded", async () => {
   db = await openDb();
@@ -135,11 +135,13 @@ function bindEvents() {
   document.getElementById("createStudySimpleTagBtn").addEventListener("click", createStudySimpleTag);
   document.getElementById("addStudyTreeLevelBtn").addEventListener("click", () => addStudyTreeLevel());
   document.getElementById("createStudyTreeTagBtn").addEventListener("click", createStudyTreeTag);
+  document.getElementById("createMistakeSimpleTagBtn").addEventListener("click", createMistakeSimpleTag);
+  document.getElementById("addMistakeTreeLevelBtn").addEventListener("click", () => addMistakeTreeLevel());
+  document.getElementById("createMistakeTreeTagBtn").addEventListener("click", createMistakeTreeTag);
   document.getElementById("addExistingStudyTagBtn").addEventListener("click", addExistingStudyTag);
   document.getElementById("deleteExistingStudyTagBtn").addEventListener("click", () => deleteExistingTagFromSelect("studyExistingTagSelect"));
   document.getElementById("addExistingMistakeTagBtn").addEventListener("click", addExistingMistakeTag);
   document.getElementById("deleteExistingMistakeTagBtn").addEventListener("click", () => deleteExistingTagFromSelect("mistakeExistingTagSelect"));
-  document.getElementById("createMistakeTagBtn").addEventListener("click", createMistakeTag);
   document.getElementById("deleteSelectedTagBtn").addEventListener("click", deleteSelectedTag);
   document.getElementById("addTagChainBtn").addEventListener("click", addTagChain);
   document.getElementById("continueTagBranchBtn").addEventListener("click", continueTagBranch);
@@ -192,6 +194,7 @@ function render() {
   renderExistingTagSelectors();
   renderDeleteTagSelector();
   renderStudyTreeBuilder();
+  renderMistakeTreeBuilder();
   renderSelectedTagChips();
   renderDashboard();
   renderStudy();
@@ -455,52 +458,84 @@ function renderSelectedTagChipsFor(inputSelector, containerId) {
 }
 
 function renderStudyTreeBuilder() {
-  const builder = document.getElementById("studyTreeBuilder");
+  renderTreeBuilder("study");
+}
+
+function renderMistakeTreeBuilder() {
+  renderTreeBuilder("mistake");
+}
+
+function renderTreeBuilder(kind) {
+  const builder = document.getElementById(`${kind}TreeBuilder`);
   if (!builder) return;
-  if (!builder.children.length) addStudyTreeLevel("", false);
-  updateStudyTreeLevelLabels();
+  if (!builder.children.length) addTreeLevel(kind, "", false);
+  updateTreeLevelLabels(kind);
 }
 
 function addStudyTreeLevel(value = "", shouldFocus = true) {
-  const builder = document.getElementById("studyTreeBuilder");
+  addTreeLevel("study", value, shouldFocus);
+}
+
+function addMistakeTreeLevel(value = "", shouldFocus = true) {
+  addTreeLevel("mistake", value, shouldFocus);
+}
+
+function addTreeLevel(kind, value = "", shouldFocus = true) {
+  const builder = document.getElementById(`${kind}TreeBuilder`);
   if (!builder) return;
-  studyTreeLevelCounter += 1;
+  treeLevelCounters[kind] = (treeLevelCounters[kind] || 0) + 1;
   const row = document.createElement("div");
   row.className = "tree-builder-row";
-  row.dataset.levelId = String(studyTreeLevelCounter);
+  row.dataset.levelId = String(treeLevelCounters[kind]);
   row.innerHTML = `
     <span class="level-index"></span>
-    <input class="study-tree-level-input" list="tagOptions" placeholder="输入或选择本级知识点" value="${escapeHtml(value)}" />
+    <input class="${kind}-tree-level-input" list="tagOptions" placeholder="输入或选择本级知识点" value="${escapeHtml(value)}" />
     <button class="small-button danger remove-level-button" type="button">删除这级</button>
   `;
   row.querySelector(".remove-level-button").addEventListener("click", () => {
     if (builder.children.length === 1) {
-      row.querySelector(".study-tree-level-input").value = "";
+      row.querySelector(`.${kind}-tree-level-input`).value = "";
     } else {
       row.remove();
     }
-    updateStudyTreeLevelLabels();
+    updateTreeLevelLabels(kind);
   });
   builder.append(row);
-  updateStudyTreeLevelLabels();
-  if (shouldFocus) row.querySelector(".study-tree-level-input").focus();
+  updateTreeLevelLabels(kind);
+  if (shouldFocus) row.querySelector(`.${kind}-tree-level-input`).focus();
 }
 
 function clearStudyTreeBuilder() {
-  const builder = document.getElementById("studyTreeBuilder");
-  if (!builder) return;
-  builder.innerHTML = "";
-  addStudyTreeLevel("", false);
+  clearTreeBuilder("study");
 }
 
-function updateStudyTreeLevelLabels() {
-  document.querySelectorAll("#studyTreeBuilder .tree-builder-row").forEach((row, index) => {
+function clearMistakeTreeBuilder() {
+  clearTreeBuilder("mistake");
+}
+
+function clearTreeBuilder(kind) {
+  const builder = document.getElementById(`${kind}TreeBuilder`);
+  if (!builder) return;
+  builder.innerHTML = "";
+  addTreeLevel(kind, "", false);
+}
+
+function updateTreeLevelLabels(kind) {
+  document.querySelectorAll(`#${kind}TreeBuilder .tree-builder-row`).forEach((row, index) => {
     row.querySelector(".level-index").textContent = `第 ${index + 1} 级`;
   });
 }
 
 function collectStudyTreeParts() {
-  return [...document.querySelectorAll("#studyTreeBuilder .study-tree-level-input")]
+  return collectTreeParts("study");
+}
+
+function collectMistakeTreeParts() {
+  return collectTreeParts("mistake");
+}
+
+function collectTreeParts(kind) {
+  return [...document.querySelectorAll(`#${kind}TreeBuilder .${kind}-tree-level-input`)]
     .flatMap((input) => splitTagPath(input.value))
     .map((part) => part.trim())
     .filter(Boolean);
@@ -566,42 +601,72 @@ async function saveMistake(event) {
 }
 
 async function createStudySimpleTag() {
-  const nameInput = document.getElementById("studySimpleTagName");
-  const importanceInput = document.getElementById("studySimpleTagImportance");
+  await createSimpleTag({
+    nameId: "studySimpleTagName",
+    importanceId: "studySimpleTagImportance",
+    targetSelector: "#studyForm [name='tags']",
+    emptyMessage: "先输入普通标签名。",
+    successLabel: "普通标签",
+  });
+}
+
+async function createMistakeSimpleTag() {
+  await createSimpleTag({
+    nameId: "mistakeSimpleTagName",
+    importanceId: "mistakeSimpleTagImportance",
+    targetSelector: "#mistakeForm [name='tags']",
+    emptyMessage: "先输入错题标签名。",
+    successLabel: "错题标签",
+  });
+}
+
+async function createSimpleTag({ nameId, importanceId, targetSelector, emptyMessage, successLabel }) {
+  const nameInput = document.getElementById(nameId);
+  const importanceInput = document.getElementById(importanceId);
   const name = nameInput.value.trim();
   if (!name) {
-    toast("先输入普通标签名。");
+    toast(emptyMessage);
     return;
   }
   const tag = await createOrUpdateTag({ name, parentId: "", importance: importanceInput.value });
-  appendTagToInput(document.querySelector("#studyForm [name='tags']"), tagPath(tag));
+  appendTagToInput(document.querySelector(targetSelector), tagPath(tag));
   nameInput.value = "";
   await refreshAfterTagChange();
-  toast(`已添加普通标签“${tagPath(tag)}”。`);
+  toast(`已添加${successLabel}“${tagPath(tag)}”。`);
 }
 
 async function createStudyTreeTag() {
-  const parts = collectStudyTreeParts();
-  if (!parts.length) {
-    toast("先填写至少一级树状标签。");
-    return;
-  }
-  const importance = document.getElementById("studyTreeImportance").value;
-  const tag = await createTagChain(parts, "", importance);
-  appendTagToInput(document.querySelector("#studyForm [name='tags']"), tagPath(tag));
-  clearStudyTreeBuilder();
-  await refreshAfterTagChange();
-  toast(`已添加树状标签“${tagPath(tag)}”。`);
+  await createTreeTag({
+    kind: "study",
+    importanceId: "studyTreeImportance",
+    targetSelector: "#studyForm [name='tags']",
+    emptyMessage: "先填写至少一级树状标签。",
+    successLabel: "树状标签",
+  });
 }
 
-async function createMistakeTag() {
-  await createQuickTag({
-    nameSelector: "#mistakeNewTagName",
-    modeSelector: "#mistakeNewTagMode",
-    parentSelector: "#mistakeNewTagParent",
-    importanceSelector: "#mistakeNewTagImportance",
+async function createMistakeTreeTag() {
+  await createTreeTag({
+    kind: "mistake",
+    importanceId: "mistakeTreeImportance",
     targetSelector: "#mistakeForm [name='tags']",
+    emptyMessage: "先填写至少一级错题树状标签。",
+    successLabel: "错题树状标签",
   });
+}
+
+async function createTreeTag({ kind, importanceId, targetSelector, emptyMessage, successLabel }) {
+  const parts = collectTreeParts(kind);
+  if (!parts.length) {
+    toast(emptyMessage);
+    return;
+  }
+  const importance = document.getElementById(importanceId).value;
+  const tag = await createTagChain(parts, "", importance);
+  appendTagToInput(document.querySelector(targetSelector), tagPath(tag));
+  clearTreeBuilder(kind);
+  await refreshAfterTagChange();
+  toast(`已添加${successLabel}“${tagPath(tag)}”。`);
 }
 
 function addExistingStudyTag() {
@@ -640,37 +705,6 @@ async function deleteExistingTagFromSelect(selectId) {
   }
   removeTagValueFromOpenForms(selectedPath);
   await deleteTag(tag.id);
-}
-
-async function createQuickTag({ nameSelector, modeSelector, parentSelector, importanceSelector, targetSelector }) {
-  const nameInput = document.querySelector(nameSelector);
-  const modeInput = document.querySelector(modeSelector);
-  const parentInput = document.querySelector(parentSelector);
-  const importanceInput = document.querySelector(importanceSelector);
-  const name = nameInput.value.trim();
-  if (!name) {
-    toast("先输入标签名。");
-    return;
-  }
-  const parentId = modeInput.value === "child" ? parentInput.value : "";
-  if (modeInput.value === "child" && !parentId) {
-    toast("选择子分支时，需要先选一个上级知识点。");
-    return;
-  }
-  const parts = splitTagPath(name);
-  const tag = parts.length > 1
-    ? await createTagChain(parts, parentId, importanceInput.value)
-    : await createOrUpdateTag({ name, parentId, importance: importanceInput.value });
-  appendTagToInput(document.querySelector(targetSelector), tagPath(tag));
-  lastChainTagId = tag.id;
-  nameInput.value = "";
-  await loadState();
-  renderTagOptions();
-  renderTagParentOptions();
-  renderExistingTagSelectors();
-  renderDeleteTagSelector();
-  renderTags();
-  toast(`已新建并选中标签“${tagPath(tag)}”。`);
 }
 
 async function addTagChain() {
@@ -719,6 +753,8 @@ async function refreshAfterTagChange() {
   renderTagParentOptions();
   renderExistingTagSelectors();
   renderDeleteTagSelector();
+  renderStudyTreeBuilder();
+  renderMistakeTreeBuilder();
   renderSelectedTagChips();
   renderTags();
   renderDashboard();
