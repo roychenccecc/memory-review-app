@@ -110,7 +110,11 @@ function bindEvents() {
   });
 
   document.querySelectorAll("[data-open-modal]").forEach((button) => {
-    button.addEventListener("click", () => document.getElementById(button.dataset.openModal).showModal());
+    button.addEventListener("click", () => {
+      if (button.dataset.openModal === "studyModal") prepareNewStudyForm();
+      if (button.dataset.openModal === "mistakeModal") prepareNewMistakeForm();
+      document.getElementById(button.dataset.openModal).showModal();
+    });
   });
 
   document.querySelectorAll("[data-close-modal]").forEach((button) => {
@@ -155,7 +159,7 @@ function bindEvents() {
     if (hasImage) pasteMistakeImage(event);
   });
   document.querySelector("#mistakeForm [name='image']").addEventListener("change", previewMistakeFile);
-  document.getElementById("clearMistakeImageBtn").addEventListener("click", clearMistakeImage);
+  document.getElementById("clearMistakeImageBtn").addEventListener("click", () => clearMistakeImage(true));
   document.getElementById("recallPercentRange").addEventListener("input", syncRecallFromRange);
   document.getElementById("recallPercentInput").addEventListener("input", syncRecallFromInput);
   document.getElementById("mistakeModal").addEventListener("close", () => {
@@ -312,6 +316,7 @@ function renderTaskCard(task) {
         ${detail ? `<p class="body-text">${escapeHtml(truncate(detail, 160))}</p>` : ""}
       </div>
       <div class="card-actions">
+        <button class="small-button" onclick="openEditItem('${task.sourceType}','${task.sourceId}')">编辑内容</button>
         <button class="small-button" onclick="openReview('${task.sourceType}','${task.sourceId}','${task.id || ""}')">记录结果</button>
         <button class="small-button" onclick="postponeTask('${task.id || ""}', '${task.sourceType}', '${task.sourceId}')">延后1天</button>
       </div>
@@ -392,7 +397,10 @@ function renderStudyMiniCard(item) {
           <span>记忆分: ${score}</span>
         </div>
       </div>
-      <button class="small-button" onclick="openReview('study','${item.id}','')">记录复习</button>
+      <div class="card-actions">
+        <button class="small-button" onclick="openEditItem('study','${item.id}')">编辑</button>
+        <button class="small-button" onclick="openReview('study','${item.id}','')">记录复习</button>
+      </div>
     </article>
   `;
 }
@@ -426,6 +434,7 @@ function renderItemCard(type, item) {
       ${body ? `<p class="body-text">${escapeHtml(body)}</p>` : ""}
       ${type === "mistake" && item.image ? `<img class="mistake-image" src="${item.image}" alt="错题图片" />` : ""}
       <div class="card-actions">
+        <button class="small-button" onclick="openEditItem('${type}','${item.id}')">编辑</button>
         <button class="small-button" onclick="openReview('${type}','${item.id}','')">记录复习</button>
         <button class="small-button danger" onclick="deleteItem('${type}','${item.id}')">删除</button>
       </div>
@@ -671,27 +680,31 @@ async function saveStudy(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const data = new FormData(form);
+  const editId = data.get("id");
+  const existing = editId ? state.study.find((item) => item.id === editId) : null;
   const tagIds = await ensureTags(parseTags(data.get("tags")));
   const item = {
-    id: id("study"),
+    ...(existing || {}),
+    id: existing?.id || id("study"),
     title: data.get("title").trim(),
     date: data.get("date"),
     studyKind: data.get("studyKind") || "new",
     notes: data.get("notes").trim(),
     tagIds,
-    memoryScore: 70,
-    currentIntervalIndex: 0,
-    currentInterval: 1,
-    createdAt: now(),
+    memoryScore: existing?.memoryScore ?? 70,
+    currentIntervalIndex: existing?.currentIntervalIndex ?? 0,
+    currentInterval: existing?.currentInterval ?? 1,
+    lastReviewedAt: existing?.lastReviewedAt,
+    createdAt: existing?.createdAt || now(),
     updatedAt: now(),
   };
   await put("study", item);
-  await createNextTask("study", item, item.date);
+  if (!existing) await createNextTask("study", item, item.date);
   await loadState();
   form.reset();
   setDefaultDates();
   form.closest("dialog").close();
-  toast("学习记录已保存，并生成复习计划。");
+  toast(existing ? "学习记录已更新。" : "学习记录已保存，并生成复习计划。");
   render();
 }
 
@@ -699,31 +712,35 @@ async function saveMistake(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const data = new FormData(form);
+  const editId = data.get("id");
+  const existing = editId ? state.mistakes.find((item) => item.id === editId) : null;
   const selectedImage = data.get("image") && data.get("image").size ? await fileToDataUrl(data.get("image")) : "";
-  const image = pastedMistakeImage || selectedImage;
+  const image = pastedMistakeImage || selectedImage || (data.get("removeImage") === "1" ? "" : existing?.image || "");
   const tagIds = await ensureTags(parseTags(data.get("tags")));
   const item = {
-    id: id("mistake"),
+    ...(existing || {}),
+    id: existing?.id || id("mistake"),
     location: data.get("location").trim(),
     question: data.get("question").trim(),
     answer: data.get("answer").trim(),
     reason: data.get("reason").trim(),
     image,
     tagIds,
-    memoryScore: 60,
-    currentIntervalIndex: 0,
-    currentInterval: 1,
-    date: toDateInput(new Date()),
-    createdAt: now(),
+    memoryScore: existing?.memoryScore ?? 60,
+    currentIntervalIndex: existing?.currentIntervalIndex ?? 0,
+    currentInterval: existing?.currentInterval ?? 1,
+    lastReviewedAt: existing?.lastReviewedAt,
+    date: existing?.date || toDateInput(new Date()),
+    createdAt: existing?.createdAt || now(),
     updatedAt: now(),
   };
   await put("mistakes", item);
-  await createNextTask("mistake", item, item.date);
+  if (!existing) await createNextTask("mistake", item, item.date);
   await loadState();
   form.reset();
   clearMistakeImage();
   form.closest("dialog").close();
-  toast("错题已保存，并加入复习计划。");
+  toast(existing ? "错题已更新。" : "错题已保存，并加入复习计划。");
   render();
 }
 
@@ -898,6 +915,7 @@ async function pasteMistakeImage(event) {
   event.stopPropagation();
   pastedMistakeImage = await fileToDataUrl(imageItem.getAsFile());
   document.querySelector("#mistakeForm [name='image']").value = "";
+  document.querySelector("#mistakeForm [name='removeImage']").value = "";
   showMistakeImagePreview(pastedMistakeImage);
   toast("图片已粘贴。");
 }
@@ -906,6 +924,7 @@ async function previewMistakeFile(event) {
   const file = event.target.files[0];
   if (!file) return;
   pastedMistakeImage = "";
+  document.querySelector("#mistakeForm [name='removeImage']").value = "";
   showMistakeImagePreview(await fileToDataUrl(file));
 }
 
@@ -914,10 +933,12 @@ function showMistakeImagePreview(dataUrl) {
   document.getElementById("mistakeImagePreview").classList.remove("hidden");
 }
 
-function clearMistakeImage() {
+function clearMistakeImage(markRemoval = false) {
   pastedMistakeImage = "";
   const fileInput = document.querySelector("#mistakeForm [name='image']");
   if (fileInput) fileInput.value = "";
+  const removeInput = document.querySelector("#mistakeForm [name='removeImage']");
+  if (removeInput && markRemoval) removeInput.value = "1";
   document.getElementById("mistakeImagePreviewImg").removeAttribute("src");
   document.getElementById("mistakeImagePreview").classList.add("hidden");
 }
@@ -1315,6 +1336,72 @@ async function createTagChain(parts, parentId = "", importance = "medium", color
   return tag;
 }
 
+function prepareNewStudyForm() {
+  const form = document.getElementById("studyForm");
+  form.reset();
+  form.elements.id.value = "";
+  document.getElementById("studyModalTitle").textContent = "新增学习记录";
+  document.getElementById("studySubmitBtn").textContent = "保存";
+  setDefaultDates();
+  renderSelectedTagChips();
+}
+
+function prepareNewMistakeForm() {
+  const form = document.getElementById("mistakeForm");
+  form.reset();
+  form.elements.id.value = "";
+  form.elements.removeImage.value = "";
+  document.getElementById("mistakeModalTitle").textContent = "新增错题";
+  document.getElementById("mistakeSubmitBtn").textContent = "保存";
+  clearMistakeImage();
+  renderSelectedTagChips();
+}
+
+function openEditItem(type, idValue) {
+  if (type === "study") {
+    openEditStudy(idValue);
+  } else {
+    openEditMistake(idValue);
+  }
+}
+
+function openEditStudy(idValue) {
+  const item = state.study.find((row) => row.id === idValue);
+  if (!item) return;
+  const form = document.getElementById("studyForm");
+  form.reset();
+  form.elements.id.value = item.id;
+  form.elements.title.value = item.title || "";
+  form.elements.date.value = item.date || toDateInput(new Date());
+  form.elements.studyKind.value = item.studyKind || "new";
+  form.elements.tags.value = tagsFor(item.tagIds).map(tagPath).join("，");
+  form.elements.notes.value = item.notes || "";
+  document.getElementById("studyModalTitle").textContent = "编辑学习记录";
+  document.getElementById("studySubmitBtn").textContent = "保存修改";
+  renderSelectedTagChips();
+  document.getElementById("studyModal").showModal();
+}
+
+function openEditMistake(idValue) {
+  const item = state.mistakes.find((row) => row.id === idValue);
+  if (!item) return;
+  const form = document.getElementById("mistakeForm");
+  form.reset();
+  form.elements.id.value = item.id;
+  form.elements.removeImage.value = "";
+  form.elements.location.value = item.location || "";
+  form.elements.question.value = item.question || "";
+  form.elements.answer.value = item.answer || "";
+  form.elements.reason.value = item.reason || "";
+  form.elements.tags.value = tagsFor(item.tagIds).map(tagPath).join("，");
+  clearMistakeImage();
+  if (item.image) showMistakeImagePreview(item.image);
+  document.getElementById("mistakeModalTitle").textContent = "编辑错题";
+  document.getElementById("mistakeSubmitBtn").textContent = "保存修改";
+  renderSelectedTagChips();
+  document.getElementById("mistakeModal").showModal();
+}
+
 function openReview(sourceType, sourceId, taskId) {
   const item = findItem(sourceType, sourceId);
   if (!item) return;
@@ -1325,7 +1412,7 @@ function openReview(sourceType, sourceId, taskId) {
   form.sourceId.value = sourceId;
   form.taskId.value = taskId;
   form.logId.value = "";
-  form.notes.value = "";
+  form.elements.notes.value = "";
   setRecallPercent(80);
   document.getElementById("reviewModal").showModal();
 }
@@ -1342,7 +1429,7 @@ function openEditReview(logId) {
   form.sourceId.value = log.sourceId;
   form.taskId.value = log.taskId || "";
   form.logId.value = log.id;
-  form.notes.value = log.notes || "";
+  form.elements.notes.value = log.notes || "";
   setRecallPercent(log.recallPercent ?? log.afterScore ?? currentScore(item));
   document.getElementById("reviewModal").showModal();
 }
@@ -1862,6 +1949,7 @@ function toast(message) {
 
 window.openReview = openReview;
 window.openEditReview = openEditReview;
+window.openEditItem = openEditItem;
 window.postponeTask = postponeTask;
 window.deleteItem = deleteItem;
 window.deleteTag = deleteTag;

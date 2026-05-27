@@ -233,9 +233,10 @@
     <dialog id="studyModal">
       <form id="studyForm" class="modal-card">
         <div class="modal-head">
-          <h3>新增学习记录</h3>
+          <h3 id="studyModalTitle">新增学习记录</h3>
           <button class="icon-button" data-close-modal type="button">×</button>
         </div>
+        <input name="id" type="hidden" />
         <label>
           标题
           <input name="title" required placeholder="今天学了什么" />
@@ -308,7 +309,7 @@
         </label>
         <div class="modal-actions">
           <button class="secondary" data-close-modal type="button">取消</button>
-          <button class="primary" type="submit">保存</button>
+          <button class="primary" id="studySubmitBtn" type="submit">保存</button>
         </div>
       </form>
     </dialog>
@@ -316,9 +317,11 @@
     <dialog id="mistakeModal">
       <form id="mistakeForm" class="modal-card">
         <div class="modal-head">
-          <h3>新增错题</h3>
+          <h3 id="mistakeModalTitle">新增错题</h3>
           <button class="icon-button" data-close-modal type="button">×</button>
         </div>
+        <input name="id" type="hidden" />
+        <input name="removeImage" type="hidden" value="" />
         <label>
           题目位置
           <input name="location" placeholder="如：真题 2021 第 14 题 / 练习册 P23" />
@@ -400,7 +403,7 @@
         </div>
         <div class="modal-actions">
           <button class="secondary" data-close-modal type="button">取消</button>
-          <button class="primary" type="submit">保存</button>
+          <button class="primary" id="mistakeSubmitBtn" type="submit">保存</button>
         </div>
       </form>
     </dialog>
