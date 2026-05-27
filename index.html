@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>自适应复习与错题管理器</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">记</div>
+          <div>
+            <h1>复习管理器</h1>
+            <p>学习、错题、记忆记录</p>
+          </div>
+        </div>
+        <nav class="nav" aria-label="主要导航">
+          <button class="nav-item active" data-view="dashboard">今日</button>
+          <button class="nav-item" data-view="study">学习记录</button>
+          <button class="nav-item" data-view="mistakes">错题库</button>
+          <button class="nav-item" data-view="tags">知识点</button>
+          <button class="nav-item" data-view="history">记忆记录</button>
+          <button class="nav-item" data-view="settings">设置/导出</button>
+        </nav>
+      </aside>
+
+      <main class="main">
+        <section class="topbar">
+          <div>
+            <p class="eyebrow" id="todayText"></p>
+            <h2 id="viewTitle">今日复习</h2>
+          </div>
+          <div class="top-actions">
+            <button class="secondary" id="seedBtn" type="button">加入示例</button>
+            <button class="primary" data-open-modal="studyModal" type="button">新增学习</button>
+            <button class="primary dark" data-open-modal="mistakeModal" type="button">新增错题</button>
+          </div>
+        </section>
+
+        <section class="view active" id="dashboard">
+          <div class="stats-grid" id="statsGrid"></div>
+          <div class="content-grid">
+            <section class="panel wide">
+              <div class="panel-head">
+                <h3>今日与逾期</h3>
+                <select id="reviewFilter" aria-label="复习筛选">
+                  <option value="all">全部任务</option>
+                  <option value="due">今日应复习</option>
+                  <option value="overdue">逾期</option>
+                  <option value="cram">考前重点</option>
+                </select>
+              </div>
+              <div class="task-list" id="taskList"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-head">
+                <h3>记忆薄弱知识点</h3>
+              </div>
+              <div id="weakTags" class="tag-insight-list"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="study">
+          <div class="panel">
+            <div class="panel-head">
+              <h3>学习记录</h3>
+              <input class="search" id="studySearch" placeholder="搜索标题、备注、标签" />
+            </div>
+            <div class="item-list" id="studyList"></div>
+          </div>
+        </section>
+
+        <section class="view" id="mistakes">
+          <div class="panel">
+            <div class="panel-head">
+              <h3>错题库</h3>
+              <input class="search" id="mistakeSearch" placeholder="搜索题目、错因、标签" />
+            </div>
+            <div class="item-list" id="mistakeList"></div>
+          </div>
+        </section>
+
+        <section class="view" id="tags">
+          <div class="content-grid">
+            <section class="panel">
+              <div class="panel-head">
+                <h3>新增知识点</h3>
+              </div>
+              <form id="tagForm" class="stack-form">
+                <label>
+                  名称
+                  <input name="name" required placeholder="如：概率统计、病理机制" />
+                </label>
+                <label>
+                  添加位置
+                  <select name="branchMode">
+                    <option value="root" selected>作为新的主分支</option>
+                    <option value="child">作为所选知识点的子分支</option>
+                  </select>
+                </label>
+                <label>
+                  上级知识点
+                  <select name="parentId" class="tag-parent-select">
+                    <option value="">无上级</option>
+                  </select>
+                </label>
+                <label>
+                  重要性
+                  <select name="importance">
+                    <option value="veryHigh">非常重要</option>
+                    <option value="high">高</option>
+                    <option value="medium" selected>中</option>
+                    <option value="low">低</option>
+                  </select>
+                </label>
+                <label>
+                  颜色
+                  <input name="color" type="color" value="#2563eb" />
+                </label>
+                <button class="primary" type="submit">保存知识点</button>
+              </form>
+              <div class="chain-tool">
+                <h4>整条链新增</h4>
+                <div class="chain-row">
+                  <input id="tagChainInput" placeholder="如：数学-数字-1" />
+                  <select id="tagChainImportance">
+                    <option value="veryHigh">非常重要</option>
+                    <option value="high">高</option>
+                    <option value="medium" selected>中</option>
+                    <option value="low">低</option>
+                  </select>
+                  <button class="primary" id="addTagChainBtn" type="button">＋</button>
+                </div>
+                <div class="chain-row">
+                  <select id="continueTagParent" class="tag-parent-select">
+                    <option value="">选择要继续添加分支的知识点</option>
+                  </select>
+                  <input id="continueTagName" placeholder="如：奇数" />
+                  <button class="secondary" id="continueTagBranchBtn" type="button">＋</button>
+                </div>
+                <p class="muted" id="lastChainHint">可以一次输入一整条链；点第一个＋后，可继续在最后一个节点下面加分支。</p>
+              </div>
+              <div class="delete-tool">
+                <h4>删除知识点</h4>
+                <select id="deleteTagSelect" class="existing-tag-select">
+                  <option value="">选择要删除的知识点</option>
+                </select>
+                <button class="secondary danger" id="deleteSelectedTagBtn" type="button">删除选中知识点</button>
+              </div>
+            </section>
+            <section class="panel wide">
+              <div class="panel-head">
+                <h3>知识点树</h3>
+              </div>
+              <div class="tag-list" id="tagList"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="history">
+          <div class="panel">
+            <div class="panel-head">
+              <h3>每次复习记录</h3>
+              <select id="historyFilter" aria-label="记录筛选">
+                <option value="all">全部</option>
+                <option value="remembered">熟记</option>
+                <option value="unclear">模糊</option>
+                <option value="forgotten">完全忘了</option>
+              </select>
+            </div>
+            <div class="history-list" id="historyList"></div>
+          </div>
+        </section>
+
+        <section class="view" id="settings">
+          <div class="content-grid">
+            <section class="panel">
+              <div class="panel-head">
+                <h3>复习设置</h3>
+              </div>
+              <form id="settingsForm" class="stack-form">
+                <label>
+                  全局考试日期
+                  <input name="examDate" type="date" />
+                </label>
+                <label>
+                  考前加密窗口（天）
+                  <input name="cramWindow" type="number" min="1" max="90" value="14" />
+                </label>
+                <label>
+                  每日考前重点上限
+                  <input name="dailyCramLimit" type="number" min="1" max="80" value="20" />
+                </label>
+                <button class="primary" type="submit">保存设置</button>
+              </form>
+            </section>
+            <section class="panel wide">
+              <div class="panel-head">
+                <h3>导入与导出</h3>
+              </div>
+              <div class="export-grid">
+                <button class="secondary" id="exportJsonBtn" type="button">导出 JSON 备份</button>
+                <button class="secondary" id="exportCsvBtn" type="button">导出 CSV</button>
+                <button class="secondary" id="exportIcsBtn" type="button">导出 ICS 日历</button>
+                <button class="primary dark" id="syncAppleCalendarBtn" type="button">同步到苹果日历</button>
+                <label class="file-button">
+                  导入 JSON 备份
+                  <input id="importJsonInput" type="file" accept="application/json" />
+                </label>
+              </div>
+              <p class="muted">JSON 会包含图片，适合完整备份；CSV/ICS 适合放进表格或日历工具。</p>
+              <div class="sync-box" id="appleCalendarSyncBox">
+                <strong>苹果日历本地订阅</strong>
+                <p>先用本地同步服务器打开本应用，再点击同步按钮。首次使用时，在苹果日历里订阅下方地址；以后点同步按钮会更新同一个日历源。</p>
+                <code id="calendarSubscribeUrl">http://127.0.0.1:4173/calendar.ics</code>
+                <span id="appleCalendarSyncStatus" class="muted">尚未同步</span>
+              </div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="studyModal">
+      <form id="studyForm" class="modal-card">
+        <div class="modal-head">
+          <h3>新增学习记录</h3>
+          <button class="icon-button" data-close-modal type="button">×</button>
+        </div>
+        <label>
+          标题
+          <input name="title" required placeholder="今天学了什么" />
+        </label>
+        <label>
+          学习日期
+          <input name="date" type="date" required />
+        </label>
+        <label>
+          知识点标签
+          <input name="tags" placeholder="多个标签用逗号分隔，也可输入 A知识点>B知识点" list="tagOptions" />
+        </label>
+        <div class="selected-tags" id="studySelectedTags"></div>
+        <div class="inline-tool tag-manage-tool">
+          <label>
+            从已有知识点选择
+            <select id="studyExistingTagSelect" class="existing-tag-select">
+              <option value="">选择一个知识点</option>
+            </select>
+          </label>
+          <button class="secondary" id="addExistingStudyTagBtn" type="button">添加到学习</button>
+          <button class="secondary danger" id="deleteExistingStudyTagBtn" type="button">删除此知识点</button>
+        </div>
+        <div class="tag-create-area">
+          <section class="tag-create-panel">
+            <div class="tag-create-head">
+              <h4>新建普通标签</h4>
+              <span>无需分类</span>
+            </div>
+            <div class="tag-builder-row">
+              <input id="studySimpleTagName" placeholder="如：高频考点、简答题" />
+              <select id="studySimpleTagImportance" aria-label="普通标签重要性">
+                <option value="veryHigh">非常重要</option>
+                <option value="high">高</option>
+                <option value="medium" selected>中</option>
+                <option value="low">低</option>
+              </select>
+              <button class="secondary" id="createStudySimpleTagBtn" type="button">＋ 添加并选中</button>
+            </div>
+          </section>
+          <section class="tag-create-panel">
+            <div class="tag-create-head">
+              <h4>树状添加</h4>
+              <span>可输入，也可从已有分支选择</span>
+            </div>
+            <div class="tree-builder" id="studyTreeBuilder"></div>
+            <div class="tree-builder-actions">
+              <button class="secondary" id="addStudyTreeLevelBtn" type="button">＋ 添加子标签</button>
+              <select id="studyTreeImportance" aria-label="树状标签重要性">
+                <option value="veryHigh">非常重要</option>
+                <option value="high">高</option>
+                <option value="medium" selected>中</option>
+                <option value="low">低</option>
+              </select>
+              <button class="primary" id="createStudyTreeTagBtn" type="button">新建整条树并选中</button>
+            </div>
+            <p class="muted tag-tool-hint">例如第一格选“数学 > 数字”，点＋后写“奇数”；也可以第一格直接写“数学-数字-1”。每一级右侧都能删除。</p>
+          </section>
+        </div>
+        <label>
+          备注
+          <textarea name="notes" rows="4" placeholder="重点、易混点、需要回看的材料"></textarea>
+        </label>
+        <div class="modal-actions">
+          <button class="secondary" data-close-modal type="button">取消</button>
+          <button class="primary" type="submit">保存</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="mistakeModal">
+      <form id="mistakeForm" class="modal-card">
+        <div class="modal-head">
+          <h3>新增错题</h3>
+          <button class="icon-button" data-close-modal type="button">×</button>
+        </div>
+        <label>
+          题目位置
+          <input name="location" placeholder="如：真题 2021 第 14 题 / 练习册 P23" />
+        </label>
+        <label>
+          题干
+          <textarea name="question" rows="3" placeholder="可选，若只想记录位置可留空"></textarea>
+        </label>
+        <label>
+          答案
+          <textarea name="answer" rows="3"></textarea>
+        </label>
+        <label>
+          错因
+          <textarea name="reason" rows="3" required placeholder="概念混淆、公式用错、审题失误等"></textarea>
+        </label>
+        <label>
+          关联知识点标签
+          <input name="tags" placeholder="从下方选择已有知识点，可关联多个" list="tagOptions" />
+        </label>
+        <div class="selected-tags" id="mistakeSelectedTags"></div>
+        <div class="inline-tool">
+          <label>
+            从已有知识点选择
+            <select id="mistakeExistingTagSelect" class="existing-tag-select">
+              <option value="">选择一个知识点</option>
+            </select>
+          </label>
+          <button class="secondary" id="addExistingMistakeTagBtn" type="button">添加到错题</button>
+          <button class="secondary danger" id="deleteExistingMistakeTagBtn" type="button">删除此知识点</button>
+        </div>
+        <div class="inline-tool mistake-create-tool">
+          <label>
+            新建错题标签/知识点
+            <input id="mistakeNewTagName" placeholder="如：选择题、简答题、B知识点" />
+          </label>
+          <label>
+            添加位置
+            <select id="mistakeNewTagMode">
+              <option value="root" selected>新主分支</option>
+              <option value="child">所选上级下的新分支</option>
+            </select>
+          </label>
+          <label>
+            上级知识点
+            <select id="mistakeNewTagParent" class="tag-parent-select">
+              <option value="">无上级</option>
+            </select>
+          </label>
+          <label>
+            重要性
+            <select id="mistakeNewTagImportance">
+              <option value="veryHigh">非常重要</option>
+              <option value="high">高</option>
+              <option value="medium" selected>中</option>
+              <option value="low">低</option>
+            </select>
+          </label>
+          <button class="secondary" id="createMistakeTagBtn" type="button">新建并选中</button>
+        </div>
+        <label>
+          错题图片
+          <input name="image" type="file" accept="image/*" />
+        </label>
+        <div class="paste-zone" id="mistakePasteZone" tabindex="0" role="button" aria-label="粘贴错题图片">
+          <strong>粘贴错题图片</strong>
+          <span>点击这里后直接 Cmd+V / Ctrl+V，可粘贴截图或复制的图片</span>
+        </div>
+        <div class="paste-preview hidden" id="mistakeImagePreview">
+          <img id="mistakeImagePreviewImg" alt="错题图片预览" />
+          <button class="small-button danger" id="clearMistakeImageBtn" type="button">清除图片</button>
+        </div>
+        <div class="modal-actions">
+          <button class="secondary" data-close-modal type="button">取消</button>
+          <button class="primary" type="submit">保存</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="reviewModal">
+      <form id="reviewForm" class="modal-card">
+        <div class="modal-head">
+          <h3 id="reviewModalTitle">记录复习结果</h3>
+          <button class="icon-button" data-close-modal type="button">×</button>
+        </div>
+        <input name="sourceType" type="hidden" />
+        <input name="sourceId" type="hidden" />
+        <input name="taskId" type="hidden" />
+        <div class="review-options">
+          <label class="choice remembered">
+            <input type="radio" name="result" value="remembered" required />
+            <span>熟记</span>
+          </label>
+          <label class="choice unclear">
+            <input type="radio" name="result" value="unclear" required />
+            <span>模糊</span>
+          </label>
+          <label class="choice forgotten">
+            <input type="radio" name="result" value="forgotten" required />
+            <span>完全忘了</span>
+          </label>
+        </div>
+        <label>
+          复习备注
+          <textarea name="notes" rows="3" placeholder="这次卡在哪里、下次重点看什么"></textarea>
+        </label>
+        <div class="modal-actions">
+          <button class="secondary" data-close-modal type="button">取消</button>
+          <button class="primary" type="submit">保存结果</button>
+        </div>
+      </form>
+    </dialog>
+
+    <datalist id="tagOptions"></datalist>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="app.js"></script>
+  </body>
+</html>
