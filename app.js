@@ -209,10 +209,11 @@ function render() {
 
 function renderDashboard() {
   const tasks = buildDisplayTasks();
+  const visibleTasks = tasks.filter((task) => !wasTaskReviewedToday(task));
   const today = toDateInput(new Date());
-  const due = tasks.filter((task) => task.scheduledDate <= today && task.status === "pending");
+  const due = visibleTasks.filter((task) => task.scheduledDate <= today && task.status === "pending");
   const overdue = due.filter((task) => task.scheduledDate < today);
-  const cram = tasks.filter((task) => task.isCram && task.status === "pending");
+  const cram = visibleTasks.filter((task) => task.isCram && task.status === "pending");
   const reviewedToday = buildReviewedTodayTasks();
   const weak = getAllItems().filter((item) => currentScore(item) < 60);
 
@@ -227,7 +228,7 @@ function renderDashboard() {
   let visible = due;
   if (filter === "overdue") visible = overdue;
   if (filter === "cram") visible = cram;
-  if (filter === "all") visible = tasks.filter((task) => task.status === "pending").slice(0, 80);
+  if (filter === "all") visible = visibleTasks.filter((task) => task.status === "pending").slice(0, 80);
   visible = visible.sort(taskSort).slice(0, 80);
 
   document.getElementById("taskList").innerHTML = `
@@ -1108,6 +1109,12 @@ function buildCramTasks() {
 function wasReviewedToday(item) {
   const today = toDateInput(new Date());
   return item.lastReviewedAt === today || state.logs.some((log) => log.sourceType === item.type && log.sourceId === item.id && log.date === today);
+}
+
+function wasTaskReviewedToday(task) {
+  const today = toDateInput(new Date());
+  const item = findItem(task.sourceType, task.sourceId);
+  return item?.lastReviewedAt === today || state.logs.some((log) => log.sourceType === task.sourceType && log.sourceId === task.sourceId && log.date === today);
 }
 
 function shouldCram(item) {
