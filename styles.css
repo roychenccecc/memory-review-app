@@ -436,6 +436,13 @@ button {
   font-size: 18px;
 }
 
+.panel-tools {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .search,
 select,
 input,
@@ -453,6 +460,11 @@ textarea {
   max-width: 320px;
 }
 
+.panel-tools .search,
+.panel-tools select {
+  max-width: 240px;
+}
+
 .task-list,
 .item-list,
 .history-list,
@@ -460,6 +472,31 @@ textarea {
 .tag-insight-list {
   display: grid;
   gap: 12px;
+}
+
+.task-section {
+  display: grid;
+  gap: 10px;
+}
+
+.task-section + .task-section {
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+}
+
+.section-title h4 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 15px;
 }
 
 .task-card,
@@ -478,6 +515,10 @@ textarea {
   grid-template-columns: 10px minmax(0, 1fr) auto;
   gap: 14px;
   align-items: start;
+}
+
+.reviewed-card {
+  opacity: 0.86;
 }
 
 .memory-strip {
@@ -671,6 +712,70 @@ dialog::backdrop {
   border-color: #f2a0a0;
 }
 
+.recall-control {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfb;
+}
+
+.recall-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.recall-head label {
+  display: flex;
+  align-items: center;
+  flex-direction: row;
+  gap: 6px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.recall-head input[type="number"] {
+  width: 88px;
+}
+
+.recall-control input[type="range"] {
+  padding: 0;
+}
+
+.recall-scale {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.study-tree-view,
+.study-tree-node {
+  display: grid;
+  gap: 10px;
+}
+
+.study-tree-items {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.mini-study-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  padding: 10px;
+}
+
 .mistake-image {
   display: block;
   max-width: 260px;
@@ -763,7 +868,10 @@ dialog::backdrop {
   }
 
   .topbar,
-  .panel-head {
+  .panel-head,
+  .panel-tools,
+  .recall-head,
+  .mini-study-card {
     align-items: stretch;
     flex-direction: column;
   }
@@ -776,7 +884,8 @@ dialog::backdrop {
   .tree-builder-actions,
   .chain-row,
   .chain-row + .chain-row,
-  .review-options {
+  .review-options,
+  .recall-scale {
     grid-template-columns: 1fr;
   }
 

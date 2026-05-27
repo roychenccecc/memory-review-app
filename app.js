@@ -5,8 +5,8 @@ const BASE_INTERVALS = [1, 2, 4, 7, 15, 30];
 const IMPORTANCE_MULTIPLIER = { veryHigh: 0.55, high: 0.7, medium: 1, low: 1.3 };
 const IMPORTANCE_WEIGHT = { veryHigh: 45, high: 30, medium: 15, low: 0 };
 const RESULT_LABEL = { remembered: "熟记", unclear: "模糊", forgotten: "完全忘了" };
-const RESULT_DELTA = { remembered: 15, unclear: -20, forgotten: -40 };
 const TYPE_LABEL = { study: "学习", mistake: "错题" };
+const STUDY_KIND_LABEL = { new: "新学", review: "复习" };
 
 let db;
 let pastedMistakeImage = "";
@@ -125,6 +125,7 @@ function bindEvents() {
   document.getElementById("reviewFilter").addEventListener("change", renderDashboard);
   document.getElementById("historyFilter").addEventListener("change", renderHistory);
   document.getElementById("studySearch").addEventListener("input", renderStudy);
+  document.getElementById("studyViewMode").addEventListener("change", renderStudy);
   document.getElementById("mistakeSearch").addEventListener("input", renderMistakes);
   document.getElementById("exportJsonBtn").addEventListener("click", exportJson);
   document.getElementById("exportCsvBtn").addEventListener("click", exportCsv);
@@ -155,6 +156,8 @@ function bindEvents() {
   });
   document.querySelector("#mistakeForm [name='image']").addEventListener("change", previewMistakeFile);
   document.getElementById("clearMistakeImageBtn").addEventListener("click", clearMistakeImage);
+  document.getElementById("recallPercentRange").addEventListener("input", syncRecallFromRange);
+  document.getElementById("recallPercentInput").addEventListener("input", syncRecallFromInput);
   document.getElementById("mistakeModal").addEventListener("close", () => {
     if (!document.getElementById("mistakeForm").matches(":focus-within")) clearMistakeImage();
   });
@@ -210,13 +213,14 @@ function renderDashboard() {
   const due = tasks.filter((task) => task.scheduledDate <= today && task.status === "pending");
   const overdue = due.filter((task) => task.scheduledDate < today);
   const cram = tasks.filter((task) => task.isCram && task.status === "pending");
+  const reviewedToday = buildReviewedTodayTasks();
   const weak = getAllItems().filter((item) => currentScore(item) < 60);
 
   document.getElementById("statsGrid").innerHTML = [
-    stat("今日/逾期", due.length),
+    stat("待复习", due.length),
+    stat("今日已复习", reviewedToday.length),
     stat("考前重点", cram.length),
     stat("薄弱内容", weak.length),
-    stat("知识点", state.tags.length),
   ].join("");
 
   const filter = document.getElementById("reviewFilter").value;
@@ -226,11 +230,48 @@ function renderDashboard() {
   if (filter === "all") visible = tasks.filter((task) => task.status === "pending").slice(0, 80);
   visible = visible.sort(taskSort).slice(0, 80);
 
-  document.getElementById("taskList").innerHTML = visible.length
-    ? visible.map(renderTaskCard).join("")
-    : empty("现在没有符合条件的复习任务。");
+  document.getElementById("taskList").innerHTML = `
+    <div class="task-section">
+      <div class="section-title">
+        <h4>待复习</h4>
+        <span>${visible.length} 项</span>
+      </div>
+      ${visible.length ? visible.map(renderTaskCard).join("") : empty("现在没有符合条件的待复习任务。")}
+    </div>
+    <div class="task-section reviewed">
+      <div class="section-title">
+        <h4>今日已复习</h4>
+        <span>${reviewedToday.length} 项</span>
+      </div>
+      ${reviewedToday.length ? reviewedToday.map(renderReviewedTaskCard).join("") : empty("今天还没有记录复习结果。")}
+    </div>
+  `;
 
   document.getElementById("weakTags").innerHTML = renderWeakTags();
+}
+
+function renderReviewedTaskCard(task) {
+  const item = findItem(task.sourceType, task.sourceId);
+  if (!item) return "";
+  const score = Number(task.afterScore ?? currentScore(item));
+  const tags = tagsFor(item.tagIds);
+  const title = task.sourceType === "study" ? item.title : item.location || firstLine(item.question) || "未命名错题";
+  return `
+    <article class="task-card reviewed-card">
+      <div class="memory-strip ${scoreClass(score)}"></div>
+      <div>
+        <h4 class="card-title">${escapeHtml(title)}</h4>
+        <div class="meta">
+          <span>${TYPE_LABEL[task.sourceType]}</span>
+          <span>已复习: ${formatDate(task.date)}</span>
+          <span>记住 ${Number(task.recallPercent ?? score)}%</span>
+          <span>记忆分: ${score}</span>
+          ${tags.map(renderTagPill).join("")}
+        </div>
+        ${task.notes ? `<p class="body-text">${escapeHtml(truncate(task.notes, 120))}</p>` : ""}
+      </div>
+    </article>
+  `;
 }
 
 function renderTaskCard(task) {
@@ -266,9 +307,79 @@ function renderTaskCard(task) {
 function renderStudy() {
   const query = document.getElementById("studySearch").value.trim().toLowerCase();
   const rows = state.study.filter((item) => matchesStudy(item, query));
+  const mode = document.getElementById("studyViewMode").value;
+  if (mode === "tree") {
+    document.getElementById("studyList").innerHTML = renderStudyTreeView(rows);
+    return;
+  }
   document.getElementById("studyList").innerHTML = rows.length
     ? rows.map((item) => renderItemCard("study", item)).join("")
     : empty("还没有学习记录。");
+}
+
+function renderStudyTreeView(rows) {
+  if (!rows.length) return empty("还没有符合条件的学习记录。");
+  const used = new Set();
+  const roots = tagTreeRows().filter((row) => row.depth === 0).map((row) => row.tag);
+  const treeHtml = roots
+    .map((tag) => renderStudyTagNode(tag, rows, used))
+    .filter(Boolean)
+    .join("");
+  const untagged = rows.filter((item) => !(item.tagIds || []).length);
+  const untaggedHtml = untagged.length
+    ? `<section class="study-tree-node">
+        <article class="tag-card">
+          <div class="meta"><span class="badge">未分类</span><span>${untagged.length} 条记录</span></div>
+          <div class="study-tree-items">${untagged.map(renderStudyMiniCard).join("")}</div>
+        </article>
+      </section>`
+    : "";
+  return treeHtml || untaggedHtml
+    ? `<div class="study-tree-view">${treeHtml}${untaggedHtml}</div>`
+    : empty("这些学习记录还没有关联到当前知识树。");
+}
+
+function renderStudyTagNode(tag, rows, used) {
+  const children = state.tags
+    .filter((child) => child.parentId === tag.id)
+    .sort((a, b) => tagPath(a).localeCompare(tagPath(b), "zh-CN"));
+  const direct = rows.filter((item) => (item.tagIds || []).includes(tag.id));
+  direct.forEach((item) => used.add(item.id));
+  const childHtml = children.map((child) => renderStudyTagNode(child, rows, used)).filter(Boolean).join("");
+  if (!direct.length && !childHtml) return "";
+  const descendantIds = descendantTagIds(tag.id);
+  const total = rows.filter((item) => (item.tagIds || []).some((tagId) => descendantIds.includes(tagId))).length;
+  return `
+    <section class="study-tree-node">
+      <article class="tag-card">
+        <div class="meta">
+          ${renderTagPill(tag)}
+          <span>${direct.length} 条直接记录</span>
+          <span>${total} 条含子知识点</span>
+        </div>
+        ${direct.length ? `<div class="study-tree-items">${direct.map(renderStudyMiniCard).join("")}</div>` : ""}
+      </article>
+      ${childHtml ? `<div class="tag-tree-children">${childHtml}</div>` : ""}
+    </section>
+  `;
+}
+
+function renderStudyMiniCard(item) {
+  const score = currentScore(item);
+  return `
+    <article class="mini-study-card">
+      <div>
+        <strong>${escapeHtml(item.title)}</strong>
+        <div class="meta">
+          <span class="badge">${studyKindLabel(item)}</span>
+          <span>${formatDate(item.date)}</span>
+          <span>下次: ${formatDate(nextTaskDate("study", item.id))}</span>
+          <span>记忆分: ${score}</span>
+        </div>
+      </div>
+      <button class="small-button" onclick="openReview('study','${item.id}','')">记录复习</button>
+    </article>
+  `;
 }
 
 function renderMistakes() {
@@ -290,7 +401,7 @@ function renderItemCard(type, item) {
   return `
     <article class="item-card">
       <div class="meta">
-        <span class="badge">${TYPE_LABEL[type]}</span>
+        <span class="badge">${type === "study" ? studyKindLabel(item) : TYPE_LABEL[type]}</span>
         <span>${formatDate(date)}</span>
         <span>记忆分: ${score}</span>
         <span>下次: ${formatDate(nextTaskDate(type, item.id))}</span>
@@ -355,7 +466,7 @@ function renderHistory() {
           <div class="meta">
             <span>${formatDate(log.date)}</span>
             <span>${TYPE_LABEL[log.sourceType]}</span>
-            <span>${RESULT_LABEL[log.result]}</span>
+            <span>${log.recallPercent != null ? `记住 ${log.recallPercent}%` : RESULT_LABEL[log.result]}</span>
             <span>分数 ${log.beforeScore} → ${log.afterScore}</span>
           </div>
           <h4 class="card-title">${escapeHtml(title)}</h4>
@@ -550,6 +661,7 @@ async function saveStudy(event) {
     id: id("study"),
     title: data.get("title").trim(),
     date: data.get("date"),
+    studyKind: data.get("studyKind") || "new",
     notes: data.get("notes").trim(),
     tagIds,
     memoryScore: 70,
@@ -846,21 +958,26 @@ async function saveReview(event) {
   const sourceType = data.get("sourceType");
   const sourceId = data.get("sourceId");
   const taskId = data.get("taskId");
-  const result = data.get("result");
+  const recallPercent = clamp(Number(data.get("recallPercent") || 0), 0, 100);
+  const result = resultFromPercent(recallPercent);
   const item = findItem(sourceType, sourceId);
   if (!item) return;
 
   const beforeScore = currentScore(item);
-  const afterScore = clamp(beforeScore + RESULT_DELTA[result], 0, 100);
+  const delta = recallDelta(recallPercent);
+  const afterScore = clamp(beforeScore + delta, 0, 100);
   const previousIndex = item.currentIntervalIndex || 0;
   let nextIndex = previousIndex;
   let nextInterval = item.currentInterval || BASE_INTERVALS[previousIndex] || 1;
 
-  if (result === "remembered") {
+  if (recallPercent >= 85) {
     nextIndex = Math.min(previousIndex + 1, BASE_INTERVALS.length - 1);
     nextInterval = BASE_INTERVALS[nextIndex] || 30;
     if (previousIndex >= BASE_INTERVALS.length - 1) nextInterval = 30;
-  } else if (result === "unclear") {
+  } else if (recallPercent >= 60) {
+    nextIndex = recallPercent >= 75 ? previousIndex : Math.max(0, previousIndex - 1);
+    nextInterval = Math.max(1, Math.ceil((item.currentInterval || BASE_INTERVALS[previousIndex] || 1) * (recallPercent / 100)));
+  } else if (recallPercent >= 40) {
     nextInterval = Math.max(1, Math.ceil((item.currentInterval || BASE_INTERVALS[previousIndex] || 1) / 2));
     nextIndex = Math.max(0, previousIndex - 1);
   } else {
@@ -875,14 +992,22 @@ async function saveReview(event) {
   item.updatedAt = now();
 
   await put(sourceType === "study" ? "study" : "mistakes", item);
-  if (taskId) {
+  if (taskId && !taskId.startsWith("cram-")) {
     const task = state.tasks.find((row) => row.id === taskId);
     if (task) {
       task.status = "done";
       task.completedAt = now();
       task.result = result;
+      task.recallPercent = recallPercent;
       await put("tasks", task);
     }
+  }
+  for (const task of state.tasks.filter((row) => row.status === "pending" && row.sourceType === sourceType && row.sourceId === sourceId && row.scheduledDate <= toDateInput(new Date()))) {
+    task.status = "done";
+    task.completedAt = now();
+    task.result = result;
+    task.recallPercent = recallPercent;
+    await put("tasks", task);
   }
 
   await put("logs", {
@@ -891,10 +1016,11 @@ async function saveReview(event) {
     sourceId,
     taskId,
     result,
+    recallPercent,
     notes: data.get("notes").trim(),
     beforeScore,
     afterScore,
-    delta: RESULT_DELTA[result],
+    delta,
     date: toDateInput(new Date()),
     createdAt: now(),
   });
@@ -903,7 +1029,7 @@ async function saveReview(event) {
   await loadState();
   form.reset();
   form.closest("dialog").close();
-  toast(`已记录为“${RESULT_LABEL[result]}”，下一次复习已更新。`);
+  toast(`已记录为“记住 ${recallPercent}%”，下一次复习已更新。`);
   render();
 }
 
@@ -943,6 +1069,20 @@ function buildDisplayTasks() {
   return pending;
 }
 
+function buildReviewedTodayTasks() {
+  const today = toDateInput(new Date());
+  const seen = new Set();
+  return state.logs
+    .filter((log) => log.date === today && findItem(log.sourceType, log.sourceId))
+    .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""))
+    .filter((log) => {
+      const key = `${log.sourceType}:${log.sourceId}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
 function buildCramTasks() {
   const { examDate, cramWindow, dailyCramLimit } = state.settings;
   if (!examDate) return [];
@@ -951,7 +1091,7 @@ function buildCramTasks() {
   if (daysLeft < 0 || daysLeft > (Number(cramWindow) || 14)) return [];
 
   return getAllItems()
-    .filter((item) => shouldCram(item))
+    .filter((item) => shouldCram(item) && !wasReviewedToday(item))
     .map((item) => ({
       id: `cram-${item.type}-${item.id}`,
       sourceType: item.type,
@@ -963,6 +1103,11 @@ function buildCramTasks() {
     }))
     .sort((a, b) => b.priority - a.priority)
     .slice(0, Number(dailyCramLimit) || 20);
+}
+
+function wasReviewedToday(item) {
+  const today = toDateInput(new Date());
+  return item.lastReviewedAt === today || state.logs.some((log) => log.sourceType === item.type && log.sourceId === item.id && log.date === today);
 }
 
 function shouldCram(item) {
@@ -991,6 +1136,20 @@ function currentScore(item) {
 function priorityScore(item, cram) {
   const recencyPenalty = Math.max(0, 12 - diffDays(item.lastReviewedAt || item.date || item.createdAt.slice(0, 10), toDateInput(new Date())));
   return (100 - currentScore(item)) + IMPORTANCE_WEIGHT[itemImportance(item)] + (cram ? 20 : 0) - recencyPenalty;
+}
+
+function recallDelta(percent) {
+  return Math.round((clamp(Number(percent) || 0, 0, 100) - 80) * 0.75);
+}
+
+function resultFromPercent(percent) {
+  if (percent >= 85) return "remembered";
+  if (percent >= 40) return "unclear";
+  return "forgotten";
+}
+
+function studyKindLabel(item) {
+  return STUDY_KIND_LABEL[item.studyKind || "new"] || "新学";
 }
 
 function itemImportance(item) {
@@ -1086,7 +1245,22 @@ function openReview(sourceType, sourceId, taskId) {
   form.sourceType.value = sourceType;
   form.sourceId.value = sourceId;
   form.taskId.value = taskId;
+  setRecallPercent(80);
   document.getElementById("reviewModal").showModal();
+}
+
+function syncRecallFromRange(event) {
+  setRecallPercent(event.currentTarget.value);
+}
+
+function syncRecallFromInput(event) {
+  setRecallPercent(event.currentTarget.value);
+}
+
+function setRecallPercent(value) {
+  const percent = clamp(Number(value) || 0, 0, 100);
+  document.getElementById("recallPercentRange").value = percent;
+  document.getElementById("recallPercentInput").value = percent;
 }
 
 async function postponeTask(taskId, sourceType, sourceId) {
@@ -1218,9 +1392,9 @@ function exportJson() {
 
 function exportCsv() {
   const rows = [
-    ["类型", "标题/位置", "日期", "标签", "记忆分", "下次复习", "备注/错因"],
-    ...state.study.map((item) => ["学习", item.title, item.date, tagsFor(item.tagIds).map(tagPath).join(";"), currentScore(item), nextTaskDate("study", item.id) || "", item.notes || ""]),
-    ...state.mistakes.map((item) => ["错题", item.location || firstLine(item.question), item.date, tagsFor(item.tagIds).map(tagPath).join(";"), currentScore(item), nextTaskDate("mistake", item.id) || "", item.reason || ""]),
+    ["类型", "学习记录类型", "标题/位置", "日期", "标签", "记忆分", "下次复习", "备注/错因"],
+    ...state.study.map((item) => ["学习", studyKindLabel(item), item.title, item.date, tagsFor(item.tagIds).map(tagPath).join(";"), currentScore(item), nextTaskDate("study", item.id) || "", item.notes || ""]),
+    ...state.mistakes.map((item) => ["错题", "", item.location || firstLine(item.question), item.date, tagsFor(item.tagIds).map(tagPath).join(";"), currentScore(item), nextTaskDate("mistake", item.id) || "", item.reason || ""]),
   ];
   download(`memory-review-${toDateInput(new Date())}.csv`, rows.map(csvRow).join("\n"), "text/csv;charset=utf-8");
 }

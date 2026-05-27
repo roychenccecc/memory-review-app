@@ -67,7 +67,13 @@
           <div class="panel">
             <div class="panel-head">
               <h3>学习记录</h3>
-              <input class="search" id="studySearch" placeholder="搜索标题、备注、标签" />
+              <div class="panel-tools">
+                <select id="studyViewMode" aria-label="学习记录视图">
+                  <option value="time">按学习时间</option>
+                  <option value="tree">按知识树</option>
+                </select>
+                <input class="search" id="studySearch" placeholder="搜索标题、备注、标签" />
+              </div>
             </div>
             <div class="item-list" id="studyList"></div>
           </div>
@@ -239,6 +245,13 @@
           <input name="date" type="date" required />
         </label>
         <label>
+          记录类型
+          <select name="studyKind">
+            <option value="new" selected>新学</option>
+            <option value="review">复习</option>
+          </select>
+        </label>
+        <label>
           知识点标签
           <input name="tags" placeholder="多个标签用逗号分隔，也可输入 A知识点>B知识点" list="tagOptions" />
         </label>
@@ -401,19 +414,20 @@
         <input name="sourceType" type="hidden" />
         <input name="sourceId" type="hidden" />
         <input name="taskId" type="hidden" />
-        <div class="review-options">
-          <label class="choice remembered">
-            <input type="radio" name="result" value="remembered" required />
-            <span>熟记</span>
-          </label>
-          <label class="choice unclear">
-            <input type="radio" name="result" value="unclear" required />
-            <span>模糊</span>
-          </label>
-          <label class="choice forgotten">
-            <input type="radio" name="result" value="forgotten" required />
-            <span>完全忘了</span>
-          </label>
+        <div class="recall-control">
+          <div class="recall-head">
+            <strong>这次记住了多少？</strong>
+            <label>
+              <input id="recallPercentInput" name="recallPercent" type="number" min="0" max="100" step="1" value="80" />
+              %
+            </label>
+          </div>
+          <input id="recallPercentRange" type="range" min="0" max="100" step="1" value="80" />
+          <div class="recall-scale">
+            <span>几乎忘记</span>
+            <span>需要巩固</span>
+            <span>基本掌握</span>
+          </div>
         </div>
         <label>
           复习备注
