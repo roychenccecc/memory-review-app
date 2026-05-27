@@ -214,6 +214,10 @@ function renderDashboard() {
   const due = visibleTasks.filter((task) => task.scheduledDate <= today && task.status === "pending");
   const overdue = due.filter((task) => task.scheduledDate < today);
   const cram = visibleTasks.filter((task) => task.isCram && task.status === "pending");
+  const future = visibleTasks
+    .filter((task) => task.status === "pending" && task.scheduledDate > today)
+    .sort(taskSort)
+    .slice(0, 40);
   const reviewedToday = buildReviewedTodayTasks();
   const weak = getAllItems().filter((item) => currentScore(item) < 60);
 
@@ -245,6 +249,13 @@ function renderDashboard() {
         <span>${reviewedToday.length} 项</span>
       </div>
       ${reviewedToday.length ? reviewedToday.map(renderReviewedTaskCard).join("") : empty("今天还没有记录复习结果。")}
+    </div>
+    <div class="task-section future">
+      <div class="section-title">
+        <h4>未来复习计划</h4>
+        <span>${future.length} 项</span>
+      </div>
+      ${future.length ? future.map(renderTaskCard).join("") : empty("还没有未来复习计划。")}
     </div>
   `;
 
