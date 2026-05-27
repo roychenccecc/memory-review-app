@@ -1339,7 +1339,7 @@ async function createTagChain(parts, parentId = "", importance = "medium", color
 function prepareNewStudyForm() {
   const form = document.getElementById("studyForm");
   form.reset();
-  form.elements.id.value = "";
+  formField(form, "id").value = "";
   document.getElementById("studyModalTitle").textContent = "新增学习记录";
   document.getElementById("studySubmitBtn").textContent = "保存";
   setDefaultDates();
@@ -1349,8 +1349,8 @@ function prepareNewStudyForm() {
 function prepareNewMistakeForm() {
   const form = document.getElementById("mistakeForm");
   form.reset();
-  form.elements.id.value = "";
-  form.elements.removeImage.value = "";
+  formField(form, "id").value = "";
+  formField(form, "removeImage").value = "";
   document.getElementById("mistakeModalTitle").textContent = "新增错题";
   document.getElementById("mistakeSubmitBtn").textContent = "保存";
   clearMistakeImage();
@@ -1358,10 +1358,15 @@ function prepareNewMistakeForm() {
 }
 
 function openEditItem(type, idValue) {
-  if (type === "study") {
-    openEditStudy(idValue);
-  } else {
-    openEditMistake(idValue);
+  try {
+    if (type === "study") {
+      openEditStudy(idValue);
+    } else {
+      openEditMistake(idValue);
+    }
+  } catch (error) {
+    console.error(error);
+    toast("打开编辑失败，请刷新页面后再试。");
   }
 }
 
@@ -1370,12 +1375,12 @@ function openEditStudy(idValue) {
   if (!item) return;
   const form = document.getElementById("studyForm");
   form.reset();
-  form.elements.id.value = item.id;
-  form.elements.title.value = item.title || "";
-  form.elements.date.value = item.date || toDateInput(new Date());
-  form.elements.studyKind.value = item.studyKind || "new";
-  form.elements.tags.value = tagsFor(item.tagIds).map(tagPath).join("，");
-  form.elements.notes.value = item.notes || "";
+  formField(form, "id").value = item.id;
+  formField(form, "title").value = item.title || "";
+  formField(form, "date").value = item.date || toDateInput(new Date());
+  formField(form, "studyKind").value = item.studyKind || "new";
+  formField(form, "tags").value = tagsFor(item.tagIds).map(tagPath).join("，");
+  formField(form, "notes").value = item.notes || "";
   document.getElementById("studyModalTitle").textContent = "编辑学习记录";
   document.getElementById("studySubmitBtn").textContent = "保存修改";
   renderSelectedTagChips();
@@ -1387,19 +1392,23 @@ function openEditMistake(idValue) {
   if (!item) return;
   const form = document.getElementById("mistakeForm");
   form.reset();
-  form.elements.id.value = item.id;
-  form.elements.removeImage.value = "";
-  form.elements.location.value = item.location || "";
-  form.elements.question.value = item.question || "";
-  form.elements.answer.value = item.answer || "";
-  form.elements.reason.value = item.reason || "";
-  form.elements.tags.value = tagsFor(item.tagIds).map(tagPath).join("，");
+  formField(form, "id").value = item.id;
+  formField(form, "removeImage").value = "";
+  formField(form, "location").value = item.location || "";
+  formField(form, "question").value = item.question || "";
+  formField(form, "answer").value = item.answer || "";
+  formField(form, "reason").value = item.reason || "";
+  formField(form, "tags").value = tagsFor(item.tagIds).map(tagPath).join("，");
   clearMistakeImage();
   if (item.image) showMistakeImagePreview(item.image);
   document.getElementById("mistakeModalTitle").textContent = "编辑错题";
   document.getElementById("mistakeSubmitBtn").textContent = "保存修改";
   renderSelectedTagChips();
   document.getElementById("mistakeModal").showModal();
+}
+
+function formField(form, name) {
+  return form.elements.namedItem(name);
 }
 
 function openReview(sourceType, sourceId, taskId) {
@@ -1412,7 +1421,7 @@ function openReview(sourceType, sourceId, taskId) {
   form.sourceId.value = sourceId;
   form.taskId.value = taskId;
   form.logId.value = "";
-  form.elements.notes.value = "";
+  formField(form, "notes").value = "";
   setRecallPercent(80);
   document.getElementById("reviewModal").showModal();
 }
@@ -1429,7 +1438,7 @@ function openEditReview(logId) {
   form.sourceId.value = log.sourceId;
   form.taskId.value = log.taskId || "";
   form.logId.value = log.id;
-  form.elements.notes.value = log.notes || "";
+  formField(form, "notes").value = log.notes || "";
   setRecallPercent(log.recallPercent ?? log.afterScore ?? currentScore(item));
   document.getElementById("reviewModal").showModal();
 }
