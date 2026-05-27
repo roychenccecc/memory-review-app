@@ -1340,8 +1340,8 @@ function prepareNewStudyForm() {
   const form = document.getElementById("studyForm");
   form.reset();
   formField(form, "id").value = "";
-  document.getElementById("studyModalTitle").textContent = "新增学习记录";
-  document.getElementById("studySubmitBtn").textContent = "保存";
+  setText("studyModalTitle", "新增学习记录");
+  setText("studySubmitBtn", "保存");
   setDefaultDates();
   renderSelectedTagChips();
 }
@@ -1351,8 +1351,8 @@ function prepareNewMistakeForm() {
   form.reset();
   formField(form, "id").value = "";
   formField(form, "removeImage").value = "";
-  document.getElementById("mistakeModalTitle").textContent = "新增错题";
-  document.getElementById("mistakeSubmitBtn").textContent = "保存";
+  setText("mistakeModalTitle", "新增错题");
+  setText("mistakeSubmitBtn", "保存");
   clearMistakeImage();
   renderSelectedTagChips();
 }
@@ -1366,7 +1366,7 @@ function openEditItem(type, idValue) {
     }
   } catch (error) {
     console.error(error);
-    toast("打开编辑失败，请刷新页面后再试。");
+    toast(`打开编辑失败：${error.message || "请刷新页面后再试。"}`);
   }
 }
 
@@ -1381,10 +1381,10 @@ function openEditStudy(idValue) {
   formField(form, "studyKind").value = item.studyKind || "new";
   formField(form, "tags").value = tagsFor(item.tagIds).map(tagPath).join("，");
   formField(form, "notes").value = item.notes || "";
-  document.getElementById("studyModalTitle").textContent = "编辑学习记录";
-  document.getElementById("studySubmitBtn").textContent = "保存修改";
+  setText("studyModalTitle", "编辑学习记录");
+  setText("studySubmitBtn", "保存修改");
   renderSelectedTagChips();
-  document.getElementById("studyModal").showModal();
+  openModal("studyModal");
 }
 
 function openEditMistake(idValue) {
@@ -1401,14 +1401,39 @@ function openEditMistake(idValue) {
   formField(form, "tags").value = tagsFor(item.tagIds).map(tagPath).join("，");
   clearMistakeImage();
   if (item.image) showMistakeImagePreview(item.image);
-  document.getElementById("mistakeModalTitle").textContent = "编辑错题";
-  document.getElementById("mistakeSubmitBtn").textContent = "保存修改";
+  setText("mistakeModalTitle", "编辑错题");
+  setText("mistakeSubmitBtn", "保存修改");
   renderSelectedTagChips();
-  document.getElementById("mistakeModal").showModal();
+  openModal("mistakeModal");
 }
 
 function formField(form, name) {
-  return form.elements.namedItem(name);
+  const field = form.elements.namedItem(name) || form.querySelector(`[name="${name}"]`);
+  if (field) return field;
+  if (["id", "removeImage"].includes(name)) {
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = name;
+    form.appendChild(input);
+    return input;
+  }
+  throw new Error(`找不到表单字段：${name}`);
+}
+
+function setText(idValue, text) {
+  const element = document.getElementById(idValue);
+  if (element) element.textContent = text;
+}
+
+function openModal(idValue) {
+  const dialog = document.getElementById(idValue);
+  if (!dialog) throw new Error(`找不到弹窗：${idValue}`);
+  if (dialog.open) return;
+  if (typeof dialog.showModal === "function") {
+    dialog.showModal();
+  } else {
+    dialog.setAttribute("open", "");
+  }
 }
 
 function openReview(sourceType, sourceId, taskId) {
