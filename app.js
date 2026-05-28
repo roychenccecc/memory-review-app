@@ -11,6 +11,8 @@ const STUDY_KIND_LABEL = { new: "新学", review: "复习" };
 let db;
 let pastedMistakeImage = "";
 let lastChainTagId = "";
+let tagMapZoom = 1;
+let tagGestureStartZoom = 1;
 let state = {
   settings: {
     id: "main",
@@ -135,6 +137,10 @@ function bindEvents() {
   document.getElementById("tagSearch").addEventListener("input", renderTags);
   document.getElementById("expandAllTagsBtn").addEventListener("click", expandAllTags);
   document.getElementById("collapseAllTagsBtn").addEventListener("click", collapseAllTags);
+  document.getElementById("resetTagZoomBtn").addEventListener("click", resetTagMapZoom);
+  document.getElementById("tagList").addEventListener("wheel", handleTagMapWheel, { passive: false });
+  document.getElementById("tagList").addEventListener("gesturestart", handleTagMapGestureStart, { passive: false });
+  document.getElementById("tagList").addEventListener("gesturechange", handleTagMapGestureChange, { passive: false });
   document.getElementById("exportJsonBtn").addEventListener("click", exportJson);
   document.getElementById("exportCsvBtn").addEventListener("click", exportCsv);
   document.getElementById("exportIcsBtn").addEventListener("click", exportIcs);
@@ -457,12 +463,14 @@ function renderTags() {
   const branches = roots.map((tag) => renderTagMindNode(tag, query)).filter(Boolean).join("");
   document.getElementById("tagList").innerHTML = roots.length
     ? branches
-      ? `<div class="mind-map-canvas">
-          <div class="mind-map-title">知识点</div>
-          <div class="mind-map-branches">${branches}</div>
+      ? `<div class="mind-map-canvas" style="--mind-map-zoom: ${tagMapZoom}">
+          <div class="mind-map-content">
+            <div class="mind-map-branches">${branches}</div>
+          </div>
         </div>`
       : empty("没有找到匹配的知识点。")
     : empty("还没有知识点。先在左侧新增，之后错题可直接从知识点树里选择。");
+  updateTagZoomText();
 }
 
 function renderTagMindNode(tag, query = "") {
@@ -523,6 +531,51 @@ function expandAllTags() {
 function collapseAllTags() {
   collapsedTagIds = new Set(state.tags.filter((tag) => state.tags.some((child) => child.parentId === tag.id)).map((tag) => tag.id));
   renderTags();
+}
+
+function handleTagMapWheel(event) {
+  if (!event.ctrlKey) return;
+  event.preventDefault();
+  const nextZoom = clamp(tagMapZoom - event.deltaY * 0.002, 0.45, 1.8);
+  setTagMapZoom(nextZoom, event);
+}
+
+function handleTagMapGestureStart(event) {
+  event.preventDefault();
+  tagGestureStartZoom = tagMapZoom;
+}
+
+function handleTagMapGestureChange(event) {
+  event.preventDefault();
+  setTagMapZoom(clamp(tagGestureStartZoom * event.scale, 0.45, 1.8), event);
+}
+
+function setTagMapZoom(nextZoom, event) {
+  const list = document.getElementById("tagList");
+  const canvas = list.querySelector(".mind-map-canvas");
+  const before = tagMapZoom;
+  tagMapZoom = Math.round(nextZoom * 100) / 100;
+  if (canvas) {
+    const rect = list.getBoundingClientRect();
+    const focusX = event ? event.clientX - rect.left + list.scrollLeft : list.scrollLeft + rect.width / 2;
+    const focusY = event ? event.clientY - rect.top + list.scrollTop : list.scrollTop + rect.height / 2;
+    canvas.style.setProperty("--mind-map-zoom", tagMapZoom);
+    if (before !== tagMapZoom) {
+      const ratio = tagMapZoom / before;
+      list.scrollLeft = focusX * ratio - (event ? event.clientX - rect.left : rect.width / 2);
+      list.scrollTop = focusY * ratio - (event ? event.clientY - rect.top : rect.height / 2);
+    }
+  }
+  updateTagZoomText();
+}
+
+function resetTagMapZoom() {
+  setTagMapZoom(1);
+}
+
+function updateTagZoomText() {
+  const label = document.getElementById("tagZoomText");
+  if (label) label.textContent = `${Math.round(tagMapZoom * 100)}%`;
 }
 
 function renderHistory() {
