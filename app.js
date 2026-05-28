@@ -534,10 +534,17 @@ function collapseAllTags() {
 }
 
 function handleTagMapWheel(event) {
-  if (!event.ctrlKey) return;
+  const list = document.getElementById("tagList");
+  if (event.ctrlKey) {
+    event.preventDefault();
+    const nextZoom = clamp(tagMapZoom - event.deltaY * 0.002, 0.45, 1.8);
+    setTagMapZoom(nextZoom, event);
+    return;
+  }
+
   event.preventDefault();
-  const nextZoom = clamp(tagMapZoom - event.deltaY * 0.002, 0.45, 1.8);
-  setTagMapZoom(nextZoom, event);
+  list.scrollLeft += event.shiftKey && !event.deltaX ? event.deltaY : event.deltaX;
+  list.scrollTop += event.deltaY;
 }
 
 function handleTagMapGestureStart(event) {
