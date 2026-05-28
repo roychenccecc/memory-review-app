@@ -25,7 +25,6 @@ let state = {
   tasks: [],
 };
 const treeLevelCounters = { study: 0, mistake: 0 };
-let collapsedTagIds = new Set();
 
 document.addEventListener("DOMContentLoaded", async () => {
   db = await openDb();
@@ -132,9 +131,6 @@ function bindEvents() {
   document.getElementById("studySearch").addEventListener("input", renderStudy);
   document.getElementById("studyViewMode").addEventListener("change", renderStudy);
   document.getElementById("mistakeSearch").addEventListener("input", renderMistakes);
-  document.getElementById("tagSearch").addEventListener("input", renderTags);
-  document.getElementById("expandAllTagsBtn").addEventListener("click", expandAllTags);
-  document.getElementById("collapseAllTagsBtn").addEventListener("click", collapseAllTags);
   document.getElementById("exportJsonBtn").addEventListener("click", exportJson);
   document.getElementById("exportCsvBtn").addEventListener("click", exportCsv);
   document.getElementById("exportIcsBtn").addEventListener("click", exportIcs);
@@ -452,15 +448,13 @@ function renderItemCard(type, item) {
 }
 
 function renderTags() {
-  const query = document.getElementById("tagSearch").value.trim().toLowerCase();
   const roots = tagTreeRows().filter((row) => row.depth === 0).map((row) => row.tag);
-  const tree = roots.map((tag) => renderTagTreeNode(tag, query)).filter(Boolean).join("");
   document.getElementById("tagList").innerHTML = roots.length
-    ? tree || empty("没有找到匹配的知识点。")
-    : empty("还没有知识点。点右上角“管理知识点”新增。");
+    ? `<div class="tag-tree">${roots.map(renderTagTreeNode).join("")}</div>`
+    : empty("还没有知识点。先在左侧新增，之后错题可直接从知识点树里选择。");
 }
 
-function renderTagTreeNode(tag, query = "") {
+function renderTagTreeNode(tag) {
   const descendantIds = descendantTagIds(tag.id);
   const linked = getAllItems().filter((item) => (item.tagIds || []).some((tagId) => descendantIds.includes(tagId)));
   const directLinked = getAllItems().filter((item) => (item.tagIds || []).includes(tag.id));
@@ -468,22 +462,9 @@ function renderTagTreeNode(tag, query = "") {
   const children = state.tags
     .filter((child) => child.parentId === tag.id)
     .sort((a, b) => tagPath(a).localeCompare(tagPath(b), "zh-CN"));
-  const childrenHtml = children.map((child) => renderTagTreeNode(child, query)).filter(Boolean).join("");
-  const isMatch = !query || tagMatchesSearch(tag, query);
-  if (query && !isMatch && !childrenHtml) return "";
-  const collapsed = collapsedTagIds.has(tag.id) && !query;
-  const hasChildren = children.length > 0;
-  const renderedChildren = query
-    ? (isMatch ? children.map((child) => renderTagTreeNode(child, "")).join("") : childrenHtml)
-    : children.map((child) => renderTagTreeNode(child, query)).join("");
   return `
-    <div class="tag-tree-node ${isMatch && query ? "search-hit" : ""}">
+    <div class="tag-tree-node">
       <article class="tag-card">
-        <div class="tag-node-main">
-          ${hasChildren
-            ? `<button class="tag-toggle" onclick="toggleTagNode('${tag.id}')" type="button" aria-label="${collapsed ? "展开" : "收起"}">${collapsed ? "+" : "-"}</button>`
-            : '<span class="tag-toggle placeholder"></span>'}
-          <div>
         <div class="meta">
           ${renderTagPill(tag)}
           <span class="badge ${tag.importance}">${importanceLabel(tag.importance)}</span>
@@ -491,44 +472,15 @@ function renderTagTreeNode(tag, query = "") {
           <span>${linked.length} 条含子知识点</span>
           <span>平均记忆分 ${avg}</span>
         </div>
-          </div>
-        </div>
         <div class="card-actions">
           <button class="small-button" onclick="renameTag('${tag.id}')">重命名</button>
           <button class="small-button" onclick="cycleImportance('${tag.id}')">切换重要性</button>
           <button class="small-button danger" onclick="deleteTag('${tag.id}')">删除</button>
         </div>
       </article>
-      ${hasChildren && !collapsed && renderedChildren ? `<div class="tag-tree-children">${renderedChildren}</div>` : ""}
+      ${children.length ? `<div class="tag-tree-children">${children.map(renderTagTreeNode).join("")}</div>` : ""}
     </div>
   `;
-}
-
-function tagMatchesSearch(tag, query) {
-  if (!query) return true;
-  return [tag.name, tagPath(tag), importanceLabel(tag.importance)]
-    .join(" ")
-    .toLowerCase()
-    .includes(query);
-}
-
-function toggleTagNode(idValue) {
-  if (collapsedTagIds.has(idValue)) {
-    collapsedTagIds.delete(idValue);
-  } else {
-    collapsedTagIds.add(idValue);
-  }
-  renderTags();
-}
-
-function expandAllTags() {
-  collapsedTagIds.clear();
-  renderTags();
-}
-
-function collapseAllTags() {
-  collapsedTagIds = new Set(state.tags.filter((tag) => state.tags.some((child) => child.parentId === tag.id)).map((tag) => tag.id));
-  renderTags();
 }
 
 function renderHistory() {
@@ -2052,4 +2004,3 @@ window.deleteSelectedTag = deleteSelectedTag;
 window.renameTag = renameTag;
 window.removeTagFromField = removeTagFromField;
 window.cycleImportance = cycleImportance;
-window.toggleTagNode = toggleTagNode;
