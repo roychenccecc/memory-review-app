@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>自适应复习与错题管理器</title>
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=20260528-mindmap-safe" />
   </head>
   <body>
     <div class="app-shell">
@@ -90,7 +90,7 @@
         </section>
 
         <section class="view" id="tags">
-          <div class="content-grid">
+          <div class="content-grid tag-workspace">
             <section class="panel">
               <div class="panel-head">
                 <h3>新增知识点</h3>
@@ -160,6 +160,11 @@
             <section class="panel wide">
               <div class="panel-head">
                 <h3>知识点树</h3>
+                <div class="panel-tools">
+                  <input class="search" id="tagSearch" placeholder="搜索知识点、路径" />
+                  <button class="secondary" id="expandAllTagsBtn" type="button">展开</button>
+                  <button class="secondary" id="collapseAllTagsBtn" type="button">收起</button>
+                </div>
               </div>
               <div class="tag-list" id="tagList"></div>
             </section>
@@ -446,6 +451,6 @@
 
     <datalist id="tagOptions"></datalist>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="app.js?v=20260528-review-count"></script>
+    <script src="app.js?v=20260528-mindmap-safe"></script>
   </body>
 </html>
