@@ -459,12 +459,17 @@ button {
   display: inline-flex;
   align-items: center;
   min-height: 24px;
+  border: 0;
   border-radius: 999px;
   padding: 3px 9px;
   background: #fee2e2;
   color: #b91c1c;
   font-size: 12px;
   font-weight: 800;
+}
+
+.mistake-count-badge:hover {
+  background: #fecaca;
 }
 
 .mind-toggle {
@@ -511,6 +516,22 @@ button {
 
 .zoom-chip {
   min-width: 68px;
+}
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eff6ff;
+  padding: 10px 12px;
+  color: #1e3a8a;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .sync-box {
