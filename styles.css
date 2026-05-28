@@ -322,41 +322,28 @@ button {
   display: block;
   min-height: calc(100vh - 245px);
   overflow: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fbfcfb;
 }
 
 .mind-map-canvas {
-  display: flex;
-  align-items: center;
+  display: block;
   width: 100%;
   min-height: 560px;
   min-width: 0;
   overflow: auto;
-  padding: 30px;
+  padding: 38px 42px;
 }
 
-.mind-map-title {
-  position: relative;
-  flex: 0 0 auto;
-  min-width: 260px;
-  border-radius: 0 22px 22px 0;
-  background: #0d1114;
-  color: white;
-  padding: 22px 28px;
-  font-size: 28px;
-  font-weight: 900;
-  letter-spacing: 0;
-}
-
-.mind-map-title::after {
-  content: "";
-  position: absolute;
-  right: -56px;
-  top: 50%;
-  width: 56px;
-  border-top: 3px solid #b8b8b8;
+.mind-map-content {
+  display: flex;
+  align-items: center;
+  width: max-content;
+  min-width: 100%;
+  transform-origin: left center;
+  zoom: var(--mind-map-zoom, 1);
 }
 
 .mind-map-branches {
@@ -364,11 +351,10 @@ button {
   display: flex;
   flex-direction: column;
   gap: 24px;
-  margin-left: 56px;
-  padding-left: 54px;
+  margin-left: 0;
+  padding-left: 0;
 }
 
-.mind-map-branches::before,
 .mind-children::before {
   content: "";
   position: absolute;
@@ -395,6 +381,10 @@ button {
   top: 50%;
   width: 54px;
   border-top: 3px solid #b8b8b8;
+}
+
+.mind-map-branches > .mind-node::before {
+  display: none;
 }
 
 .mind-card {
@@ -470,6 +460,10 @@ button {
 .mind-node.search-hit > .mind-card {
   border-color: #2563eb;
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.zoom-chip {
+  min-width: 68px;
 }
 
 .sync-box {
@@ -1056,19 +1050,17 @@ dialog::backdrop {
   }
 
   .mind-map-canvas,
+  .mind-map-content,
   .mind-node {
     display: grid;
     width: auto;
     min-width: 0;
   }
 
-  .mind-map-title {
-    min-width: 0;
-    border-radius: 16px;
+  .mind-map-canvas {
+    padding: 20px;
   }
 
-  .mind-map-title::after,
-  .mind-map-branches::before,
   .mind-children::before,
   .mind-node::before {
     display: none;
