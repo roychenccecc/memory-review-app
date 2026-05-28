@@ -455,6 +455,18 @@ button {
   color: #64748b;
 }
 
+.mistake-count-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 3px 9px;
+  background: #fee2e2;
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .mind-toggle {
   display: grid;
   width: 26px;
