@@ -296,22 +296,76 @@ button {
   font-weight: 900;
 }
 
+.tag-map-panel {
+  min-height: calc(100vh - 150px);
+}
+
+.tag-list.mind-map {
+  min-height: 520px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8faf8;
+}
+
 .tag-tree {
   display: grid;
   gap: 10px;
 }
 
-.tag-tree-children {
+.tag-tree-node {
+  position: relative;
   display: grid;
   gap: 10px;
-  margin-left: 22px;
-  padding-left: 14px;
-  border-left: 2px solid var(--line);
 }
 
-.tag-tree-node {
+.tag-tree-children {
+  position: relative;
   display: grid;
+  gap: 12px;
+  margin-left: 34px;
+  padding-left: 24px;
+  border-left: 2px solid #c7d6d2;
+}
+
+.tag-tree-children > .tag-tree-node::before {
+  content: "";
+  position: absolute;
+  left: -24px;
+  top: 26px;
+  width: 24px;
+  border-top: 2px solid #c7d6d2;
+}
+
+.tag-node-main {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
   gap: 10px;
+  align-items: start;
+}
+
+.tag-toggle {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: white;
+  color: var(--ink);
+  font-weight: 900;
+  line-height: 1;
+}
+
+.tag-toggle.placeholder {
+  border-color: transparent;
+  background: transparent;
+}
+
+.tag-tree-node.search-hit > .tag-card {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.11);
 }
 
 .sync-box {
