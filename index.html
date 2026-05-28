@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>自适应复习与错题管理器</title>
-    <link rel="stylesheet" href="styles.css?v=20260528-mindmap-safe" />
+    <link rel="stylesheet" href="styles.css?v=20260528-mindmap-main" />
   </head>
   <body>
     <div class="app-shell">
@@ -90,85 +90,18 @@
         </section>
 
         <section class="view" id="tags">
-          <div class="content-grid tag-workspace">
-            <section class="panel">
-              <div class="panel-head">
-                <h3>新增知识点</h3>
+          <section class="panel wide tag-map-panel">
+            <div class="panel-head">
+              <h3>知识点树</h3>
+              <div class="panel-tools">
+                <input class="search" id="tagSearch" placeholder="搜索知识点、路径" />
+                <button class="secondary" id="expandAllTagsBtn" type="button">展开</button>
+                <button class="secondary" id="collapseAllTagsBtn" type="button">收起</button>
+                <button class="primary" data-open-modal="tagManageModal" type="button">管理知识点</button>
               </div>
-              <form id="tagForm" class="stack-form">
-                <label>
-                  名称
-                  <input name="name" required placeholder="如：概率统计、病理机制" />
-                </label>
-                <label>
-                  添加位置
-                  <select name="branchMode">
-                    <option value="root" selected>作为新的主分支</option>
-                    <option value="child">作为所选知识点的子分支</option>
-                  </select>
-                </label>
-                <label>
-                  上级知识点
-                  <select name="parentId" class="tag-parent-select">
-                    <option value="">无上级</option>
-                  </select>
-                </label>
-                <label>
-                  重要性
-                  <select name="importance">
-                    <option value="veryHigh">非常重要</option>
-                    <option value="high">高</option>
-                    <option value="medium" selected>中</option>
-                    <option value="low">低</option>
-                  </select>
-                </label>
-                <label>
-                  颜色
-                  <input name="color" type="color" value="#2563eb" />
-                </label>
-                <button class="primary" type="submit">保存知识点</button>
-              </form>
-              <div class="chain-tool">
-                <h4>整条链新增</h4>
-                <div class="chain-row">
-                  <input id="tagChainInput" placeholder="如：数学-数字-1" />
-                  <select id="tagChainImportance">
-                    <option value="veryHigh">非常重要</option>
-                    <option value="high">高</option>
-                    <option value="medium" selected>中</option>
-                    <option value="low">低</option>
-                  </select>
-                  <button class="primary" id="addTagChainBtn" type="button">＋</button>
-                </div>
-                <div class="chain-row">
-                  <select id="continueTagParent" class="tag-parent-select">
-                    <option value="">选择要继续添加分支的知识点</option>
-                  </select>
-                  <input id="continueTagName" placeholder="如：奇数" />
-                  <button class="secondary" id="continueTagBranchBtn" type="button">＋</button>
-                </div>
-                <p class="muted" id="lastChainHint">可以一次输入一整条链；点第一个＋后，可继续在最后一个节点下面加分支。</p>
-              </div>
-              <div class="delete-tool">
-                <h4>删除知识点</h4>
-                <select id="deleteTagSelect" class="existing-tag-select">
-                  <option value="">选择要删除的知识点</option>
-                </select>
-                <button class="secondary danger" id="deleteSelectedTagBtn" type="button">删除选中知识点</button>
-              </div>
-            </section>
-            <section class="panel wide">
-              <div class="panel-head">
-                <h3>知识点树</h3>
-                <div class="panel-tools">
-                  <input class="search" id="tagSearch" placeholder="搜索知识点、路径" />
-                  <button class="secondary" id="expandAllTagsBtn" type="button">展开</button>
-                  <button class="secondary" id="collapseAllTagsBtn" type="button">收起</button>
-                </div>
-              </div>
-              <div class="tag-list" id="tagList"></div>
-            </section>
-          </div>
+            </div>
+            <div class="tag-list" id="tagList"></div>
+          </section>
         </section>
 
         <section class="view" id="history">
@@ -413,6 +346,76 @@
       </form>
     </dialog>
 
+    <dialog id="tagManageModal">
+      <section class="modal-card tag-manage-modal">
+        <div class="modal-head">
+          <h3>管理知识点</h3>
+          <button class="icon-button" data-close-modal type="button">×</button>
+        </div>
+        <form id="tagForm" class="stack-form">
+          <label>
+            名称
+            <input name="name" required placeholder="如：概率统计、病理机制" />
+          </label>
+          <label>
+            添加位置
+            <select name="branchMode">
+              <option value="root" selected>作为新的主分支</option>
+              <option value="child">作为所选知识点的子分支</option>
+            </select>
+          </label>
+          <label>
+            上级知识点
+            <select name="parentId" class="tag-parent-select">
+              <option value="">无上级</option>
+            </select>
+          </label>
+          <label>
+            重要性
+            <select name="importance">
+              <option value="veryHigh">非常重要</option>
+              <option value="high">高</option>
+              <option value="medium" selected>中</option>
+              <option value="low">低</option>
+            </select>
+          </label>
+          <label>
+            颜色
+            <input name="color" type="color" value="#2563eb" />
+          </label>
+          <button class="primary" type="submit">保存知识点</button>
+        </form>
+        <div class="chain-tool">
+          <h4>整条链新增</h4>
+          <div class="chain-row">
+            <input id="tagChainInput" placeholder="如：数学-数字-1" />
+            <select id="tagChainImportance">
+              <option value="veryHigh">非常重要</option>
+              <option value="high">高</option>
+              <option value="medium" selected>中</option>
+              <option value="low">低</option>
+            </select>
+            <button class="primary" id="addTagChainBtn" type="button">＋</button>
+          </div>
+          <div class="chain-row">
+            <select id="continueTagParent" class="tag-parent-select">
+              <option value="">选择要继续添加分支的知识点</option>
+            </select>
+            <input id="continueTagName" placeholder="如：奇数" />
+            <button class="secondary" id="continueTagBranchBtn" type="button">＋</button>
+          </div>
+          <p class="muted" id="lastChainHint">可以一次输入一整条链；点第一个＋后，可继续在最后一个节点下面加分支。</p>
+        </div>
+        <div class="delete-tool">
+          <h4>删除知识点</h4>
+          <select id="deleteTagSelect" class="existing-tag-select">
+            <option value="">选择要删除的知识点</option>
+          </select>
+          <button class="secondary danger" id="deleteSelectedTagBtn" type="button">删除选中知识点</button>
+        </div>
+      </section>
+    </dialog>
+
     <dialog id="reviewModal">
       <form id="reviewForm" class="modal-card">
         <div class="modal-head">
@@ -451,6 +454,6 @@
 
     <datalist id="tagOptions"></datalist>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="app.js?v=20260528-mindmap-safe"></script>
+    <script src="app.js?v=20260528-mindmap-main"></script>
   </body>
 </html>
