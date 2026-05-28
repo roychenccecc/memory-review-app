@@ -314,13 +314,31 @@ button {
   gap: 10px;
 }
 
+#tags.view.active {
+  display: flex;
+  height: calc(100vh - 128px);
+  min-height: 520px;
+  overflow: hidden;
+}
+
 .tag-map-panel {
-  min-height: calc(100vh - 150px);
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.tag-map-panel .panel-head {
+  flex: 0 0 auto;
 }
 
 .tag-map-panel .tag-list {
   display: block;
-  min-height: calc(100vh - 245px);
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+  max-height: none;
   overflow: auto;
   overscroll-behavior: contain;
   touch-action: pan-x pan-y;
@@ -331,9 +349,9 @@ button {
 
 .mind-map-canvas {
   display: block;
-  width: 100%;
-  min-height: 560px;
-  min-width: 0;
+  width: max-content;
+  min-width: 100%;
+  min-height: 100%;
   overflow: visible;
   padding: 38px 42px;
 }
