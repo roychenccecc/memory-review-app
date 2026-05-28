@@ -280,6 +280,7 @@ function renderReviewedTaskCard(task) {
         <div class="meta">
           <span>${TYPE_LABEL[task.sourceType]}</span>
           <span>已复习: ${formatDate(task.date)}</span>
+          <span>已复习 ${reviewCount(task.sourceType, task.sourceId)} 次</span>
           <span>记住 ${Number(task.recallPercent ?? score)}%</span>
           <span>记忆分: ${score}</span>
           ${tags.map(renderTagPill).join("")}
@@ -310,6 +311,7 @@ function renderTaskCard(task) {
         <div class="meta">
           <span>${TYPE_LABEL[task.sourceType]}</span>
           <span>${dateLabel}: ${formatDate(task.scheduledDate)}</span>
+          <span>已复习 ${reviewCount(task.sourceType, task.sourceId)} 次</span>
           <span>记忆分: ${score}</span>
           ${task.isCram ? '<span class="badge cram">考前重点</span>' : ""}
           ${tags.map(renderTagPill).join("")}
@@ -394,6 +396,7 @@ function renderStudyMiniCard(item) {
         <div class="meta">
           <span class="badge">${studyKindLabel(item)}</span>
           <span>${formatDate(item.date)}</span>
+          <span>已复习 ${reviewCount("study", item.id)} 次</span>
           <span>下次: ${formatDate(nextTaskDate("study", item.id))}</span>
           <span>记忆分: ${score}</span>
         </div>
@@ -427,6 +430,7 @@ function renderItemCard(type, item) {
       <div class="meta">
         <span class="badge">${type === "study" ? studyKindLabel(item) : TYPE_LABEL[type]}</span>
         <span>${formatDate(date)}</span>
+        <span>已复习 ${reviewCount(type, item.id)} 次</span>
         <span>记忆分: ${score}</span>
         <span>下次: ${formatDate(nextTaskDate(type, item.id))}</span>
         ${tags.map(renderTagPill).join("")}
@@ -1707,6 +1711,10 @@ function getAllItems() {
 
 function findItem(type, sourceId) {
   return (type === "study" ? state.study : state.mistakes).find((item) => item.id === sourceId);
+}
+
+function reviewCount(type, sourceId) {
+  return state.logs.filter((log) => log.sourceType === type && log.sourceId === sourceId).length;
 }
 
 function tagsFor(ids = []) {
