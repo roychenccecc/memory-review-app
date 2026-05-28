@@ -287,6 +287,7 @@ function renderReviewedTaskCard(task) {
         ${task.notes ? `<p class="body-text">${escapeHtml(truncate(task.notes, 120))}</p>` : ""}
       </div>
       <div class="card-actions">
+        <button class="small-button" onclick="openEditItem('${task.sourceType}','${task.sourceId}')">编辑内容</button>
         <button class="small-button" onclick="openEditReview('${task.id}')">修改记录</button>
       </div>
     </article>
