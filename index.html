@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>自适应复习与错题管理器</title>
-    <link rel="stylesheet" href="styles.css?v=20260528-mistake-score" />
+    <link rel="stylesheet" href="styles.css?v=20260528-mistake-jump" />
   </head>
   <body>
     <div class="app-shell">
@@ -84,6 +84,10 @@
             <div class="panel-head">
               <h3>错题库</h3>
               <input class="search" id="mistakeSearch" placeholder="搜索题目、错因、标签" />
+            </div>
+            <div class="filter-bar hidden" id="mistakeTagFilterBar">
+              <span id="mistakeTagFilterText"></span>
+              <button class="small-button" id="clearMistakeTagFilterBtn" type="button">清除筛选</button>
             </div>
             <div class="item-list" id="mistakeList"></div>
           </div>
@@ -457,6 +461,6 @@
 
     <datalist id="tagOptions"></datalist>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="app.js?v=20260528-mistake-score"></script>
+    <script src="app.js?v=20260528-mistake-jump"></script>
   </body>
 </html>
