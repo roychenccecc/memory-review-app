@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>自适应复习与错题管理器</title>
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=20260528-tag-map" />
   </head>
   <body>
     <div class="app-shell">
@@ -90,10 +90,24 @@
         </section>
 
         <section class="view" id="tags">
-          <div class="content-grid">
-            <section class="panel">
+          <section class="panel tag-map-panel">
+            <div class="panel-head">
+              <h3>知识点树</h3>
+              <div class="panel-tools">
+                <input class="search" id="tagSearch" placeholder="搜索知识点、路径" />
+                <button class="secondary" id="expandAllTagsBtn" type="button">全部展开</button>
+                <button class="secondary" id="collapseAllTagsBtn" type="button">全部收起</button>
+                <button class="primary" data-open-modal="tagManageModal" type="button">管理知识点</button>
+              </div>
+            </div>
+            <div class="tag-list mind-map" id="tagList"></div>
+          </section>
+
+          <dialog id="tagManageModal">
+            <section class="modal-card">
               <div class="panel-head">
-                <h3>新增知识点</h3>
+                <h3>管理知识点</h3>
+                <button class="icon-button" data-close-modal type="button">×</button>
               </div>
               <form id="tagForm" class="stack-form">
                 <label>
@@ -157,13 +171,7 @@
                 <button class="secondary danger" id="deleteSelectedTagBtn" type="button">删除选中知识点</button>
               </div>
             </section>
-            <section class="panel wide">
-              <div class="panel-head">
-                <h3>知识点树</h3>
-              </div>
-              <div class="tag-list" id="tagList"></div>
-            </section>
-          </div>
+          </dialog>
         </section>
 
         <section class="view" id="history">
@@ -446,6 +454,6 @@
 
     <datalist id="tagOptions"></datalist>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="app.js?v=20260528-review-count"></script>
+    <script src="app.js?v=20260528-tag-map"></script>
   </body>
 </html>
