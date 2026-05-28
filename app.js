@@ -5,6 +5,10 @@ const BASE_INTERVALS = [1, 2, 4, 7, 15, 30];
 const IMPORTANCE_MULTIPLIER = { veryHigh: 0.55, high: 0.7, medium: 1, low: 1.3 };
 const IMPORTANCE_WEIGHT = { veryHigh: 45, high: 30, medium: 15, low: 0 };
 const TAG_SCORE_WEIGHT = { veryHigh: 5, high: 3, medium: 2, low: 1 };
+const TAG_STUDY_RATIO = 0.6;
+const TAG_MISTAKE_RATIO = 0.4;
+const MISTAKE_COUNT_PENALTY = 3;
+const MAX_MISTAKE_PENALTY = 18;
 const RESULT_LABEL = { remembered: "熟记", unclear: "模糊", forgotten: "完全忘了" };
 const TYPE_LABEL = { study: "学习", mistake: "错题" };
 const STUDY_KIND_LABEL = { new: "新学", review: "复习" };
@@ -484,7 +488,7 @@ function renderTagMindNode(tag, query = "", tagScoreCache = new Map()) {
   if (query && !isMatch && !childrenHtml) return "";
   const hasChildren = children.length > 0;
   const collapsed = collapsedTagIds.has(tag.id) && !query;
-  const tagScore = tagMemoryScore(tag, tagScoreCache);
+  const tagSummary = tagMemorySummary(tag, tagScoreCache);
   return `
     <div class="mind-node ${isMatch && query ? "search-hit" : ""}">
       <article class="mind-card">
@@ -496,7 +500,8 @@ function renderTagMindNode(tag, query = "", tagScoreCache = new Map()) {
             <strong>${escapeHtml(tag.name)}</strong>
             <div class="mind-meta">
               <span class="badge ${tag.importance}">${importanceLabel(tag.importance)}</span>
-              ${renderTagMemoryScore(tagScore)}
+              ${renderTagMemoryScore(tagSummary.score)}
+              ${!hasChildren && tagSummary.mistakeCount ? `<span class="mistake-count-badge">错题 ${tagSummary.mistakeCount}</span>` : ""}
             </div>
           </div>
         </div>
@@ -613,25 +618,27 @@ function renderHistory() {
 }
 
 function renderWeakTags() {
+  const tagScoreCache = new Map();
   const summaries = state.tags.map((tag) => {
     const descendantIds = descendantTagIds(tag.id);
     const linked = getAllItems().filter((item) => (item.tagIds || []).some((tagId) => descendantIds.includes(tagId)));
     if (!linked.length) return null;
-    const avg = Math.round(linked.reduce((sum, item) => sum + currentScore(item), 0) / linked.length);
+    const summary = tagMemorySummary(tag, tagScoreCache);
+    if (summary.score == null) return null;
     const weakCount = linked.filter((item) => currentScore(item) < 60).length;
-    return { tag, avg, weakCount };
+    return { tag, avg: summary.score, weakCount, mistakeCount: summary.mistakeCount || 0 };
   }).filter(Boolean)
     .sort((a, b) => a.avg - b.avg || b.weakCount - a.weakCount)
     .slice(0, 8);
 
   return summaries.length
-    ? summaries.map(({ tag, avg, weakCount }) => `
+    ? summaries.map(({ tag, avg, weakCount, mistakeCount }) => `
       <article class="tag-card">
         <div class="meta">
           ${renderTagPill(tag)}
           <span class="badge ${tag.importance}">${importanceLabel(tag.importance)}</span>
         </div>
-        <p class="body-text">平均记忆分 ${avg}，薄弱内容 ${weakCount} 条</p>
+        <p class="body-text">综合记忆分 ${avg}，薄弱内容 ${weakCount} 条${mistakeCount ? `，错题 ${mistakeCount} 道` : ""}</p>
       </article>
     `).join("")
     : empty("还没有可分析的知识点。");
@@ -1120,8 +1127,16 @@ async function saveReview(event) {
     return;
   }
 
+  const logCreatedAt = now();
+  const logDate = toDateInput(new Date());
+  const newLogId = id("log");
   const beforeScore = currentScore(item);
-  const afterScore = averageRecentRecallScore(sourceType, sourceId, recallPercent);
+  const afterScore = memoryScoreFromReview(sourceType, sourceId, {
+    id: newLogId,
+    recallPercent,
+    createdAt: logCreatedAt,
+    date: logDate,
+  });
   const delta = afterScore - beforeScore;
   const previousIndex = item.currentIntervalIndex || 0;
   let nextIndex = previousIndex;
@@ -1168,7 +1183,7 @@ async function saveReview(event) {
   }
 
   await put("logs", {
-    id: id("log"),
+    id: newLogId,
     sourceType,
     sourceId,
     taskId,
@@ -1178,8 +1193,8 @@ async function saveReview(event) {
     beforeScore,
     afterScore,
     delta,
-    date: toDateInput(new Date()),
-    createdAt: now(),
+    date: logDate,
+    createdAt: logCreatedAt,
   });
 
   await createNextTask(sourceType, item, toDateInput(new Date()), result);
@@ -1195,7 +1210,12 @@ async function updateReviewLog({ logId, sourceType, sourceId, taskId, recallPerc
   const item = findItem(sourceType, sourceId);
   if (!log || !item) return;
   const beforeScore = Number(log.beforeScore ?? currentScore(item));
-  const afterScore = averageRecentRecallScore(sourceType, sourceId, recallPercent, logId);
+  const afterScore = memoryScoreFromReview(sourceType, sourceId, {
+    ...log,
+    recallPercent,
+    result,
+    notes,
+  });
   item.memoryScore = afterScore;
   item.updatedAt = now();
   if (log.date === toDateInput(new Date())) item.lastReviewedAt = log.date;
@@ -1336,7 +1356,7 @@ function currentScore(item) {
 
 function priorityScore(item, cram) {
   const recencyPenalty = Math.max(0, 12 - diffDays(item.lastReviewedAt || item.date || item.createdAt.slice(0, 10), toDateInput(new Date())));
-  return (100 - currentScore(item)) + IMPORTANCE_WEIGHT[itemImportance(item)] + (cram ? 20 : 0) - recencyPenalty;
+  return (100 - currentScore(item)) + IMPORTANCE_WEIGHT[itemImportance(item)] + knowledgeWeaknessBonus(item) + (cram ? 20 : 0) - recencyPenalty;
 }
 
 function resultFromPercent(percent) {
@@ -1345,18 +1365,36 @@ function resultFromPercent(percent) {
   return "forgotten";
 }
 
-function averageRecentRecallScore(sourceType, sourceId, currentPercent, excludeLogId = "") {
-  const recentScores = [
-    clamp(Number(currentPercent) || 0, 0, 100),
-    ...state.logs
-      .filter((log) => log.sourceType === sourceType && log.sourceId === sourceId && log.id !== excludeLogId)
-      .sort((a, b) => (b.createdAt || b.date || "").localeCompare(a.createdAt || a.date || ""))
-      .map((log) => Number(log.recallPercent ?? log.afterScore))
-      .filter((score) => Number.isFinite(score))
-      .map((score) => clamp(score, 0, 100)),
-  ].slice(0, 10);
-  const total = recentScores.reduce((sum, score) => sum + score, 0);
-  return Math.round(total / recentScores.length);
+function memoryScoreFromReview(sourceType, sourceId, reviewDraft) {
+  const scores = recentReviewScores(sourceType, sourceId, reviewDraft);
+  if (!scores.length) return clamp(Number(reviewDraft?.recallPercent) || 0, 0, 100);
+  if (sourceType === "mistake") return weightedLatestMistakeScore(scores);
+  return averageScores(scores);
+}
+
+function recentReviewScores(sourceType, sourceId, reviewDraft) {
+  const rows = state.logs
+    .filter((log) => log.sourceType === sourceType && log.sourceId === sourceId && log.id !== reviewDraft?.id)
+    .concat(reviewDraft ? [{ ...reviewDraft, sourceType, sourceId }] : [])
+    .sort((a, b) => (b.createdAt || b.date || "").localeCompare(a.createdAt || a.date || ""));
+  return rows
+    .map((log) => Number(log.recallPercent ?? log.afterScore))
+    .filter((score) => Number.isFinite(score))
+    .map((score) => clamp(score, 0, 100))
+    .slice(0, 10);
+}
+
+function weightedLatestMistakeScore(scores) {
+  if (scores.length <= 1) return Math.round(scores[0] || 0);
+  const latest = scores[0];
+  const restAverage = averageScores(scores.slice(1, 10));
+  return Math.round(clamp(latest * 0.5 + restAverage * 0.5, 0, 100));
+}
+
+function averageScores(scores) {
+  if (!scores.length) return 0;
+  const total = scores.reduce((sum, score) => sum + score, 0);
+  return Math.round(total / scores.length);
 }
 
 function studyKindLabel(item) {
@@ -1369,6 +1407,18 @@ function itemImportance(item) {
   if (tags.some((tag) => tag.importance === "high")) return "high";
   if (tags.some((tag) => tag.importance === "medium")) return "medium";
   return "low";
+}
+
+function knowledgeWeaknessBonus(item) {
+  const tags = [...new Map(tagsFor(item.tagIds).flatMap(tagWithAncestors).map((tag) => [tag.id, tag])).values()];
+  if (!tags.length) return 0;
+  const cache = new Map();
+  const scores = tags
+    .map((tag) => tagMemoryScore(tag, cache))
+    .filter((score) => score != null);
+  if (!scores.length) return 0;
+  const lowestScore = Math.min(...scores);
+  return lowestScore < 70 ? Math.min(20, 70 - lowestScore) : 0;
 }
 
 async function ensureTags(names) {
@@ -1965,32 +2015,63 @@ function descendantTagIds(tagId) {
 }
 
 function tagMemoryScore(tag, cache = new Map()) {
-  if (!tag) return null;
+  return tagMemorySummary(tag, cache).score;
+}
+
+function tagMemorySummary(tag, cache = new Map()) {
+  if (!tag) return { score: null, mistakeCount: 0 };
   if (cache.has(tag.id)) return cache.get(tag.id);
 
   const children = state.tags.filter((child) => child.parentId === tag.id);
-  let score = null;
+  let summary = { score: null, mistakeCount: 0 };
   if (children.length) {
     let weightedTotal = 0;
     let totalWeight = 0;
+    let mistakeCount = 0;
     for (const child of children) {
-      const childScore = tagMemoryScore(child, cache);
-      if (childScore == null) continue;
+      const childSummary = tagMemorySummary(child, cache);
+      mistakeCount += childSummary.mistakeCount || 0;
+      if (childSummary.score == null) continue;
       const weight = TAG_SCORE_WEIGHT[child.importance] || TAG_SCORE_WEIGHT.medium;
-      weightedTotal += childScore * weight;
+      weightedTotal += childSummary.score * weight;
       totalWeight += weight;
     }
-    score = totalWeight ? Math.round(weightedTotal / totalWeight) : null;
+    summary = {
+      score: totalWeight ? Math.round(weightedTotal / totalWeight) : null,
+      mistakeCount,
+    };
   } else {
-    const linkedItems = getAllItems().filter((item) => (item.tagIds || []).includes(tag.id));
-    if (linkedItems.length) {
-      const total = linkedItems.reduce((sum, item) => sum + currentScore(item), 0);
-      score = Math.round(total / linkedItems.length);
-    }
+    summary = leafTagMemorySummary(tag.id);
   }
 
-  cache.set(tag.id, score);
-  return score;
+  cache.set(tag.id, summary);
+  return summary;
+}
+
+function leafTagMemorySummary(tagId) {
+  const studyItems = state.study.filter((item) => (item.tagIds || []).includes(tagId));
+  const mistakeItems = state.mistakes.filter((item) => (item.tagIds || []).includes(tagId));
+  const studyScore = studyItems.length ? averageScores(studyItems.map(currentScore)) : null;
+  const mistakeBaseScore = mistakeItems.length ? averageScores(mistakeItems.map(currentScore)) : null;
+  const mistakePenalty = Math.min(mistakeItems.length * MISTAKE_COUNT_PENALTY, MAX_MISTAKE_PENALTY);
+  const mistakeScore = mistakeBaseScore == null ? null : clamp(mistakeBaseScore - mistakePenalty, 0, 100);
+
+  let score = null;
+  if (studyScore != null && mistakeScore != null) {
+    score = Math.round(studyScore * TAG_STUDY_RATIO + mistakeScore * TAG_MISTAKE_RATIO);
+  } else if (studyScore != null) {
+    score = studyScore;
+  } else if (mistakeScore != null) {
+    score = mistakeScore;
+  }
+
+  return {
+    score,
+    studyScore,
+    mistakeBaseScore,
+    mistakeScore,
+    mistakeCount: mistakeItems.length,
+  };
 }
 
 function renderTagMemoryScore(score) {
