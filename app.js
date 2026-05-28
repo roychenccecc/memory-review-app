@@ -18,6 +18,7 @@ let pastedMistakeImage = "";
 let lastChainTagId = "";
 let tagMapZoom = 1;
 let tagGestureStartZoom = 1;
+let activeMistakeTagFilterId = "";
 let state = {
   settings: {
     id: "main",
@@ -139,6 +140,7 @@ function bindEvents() {
   document.getElementById("studySearch").addEventListener("input", renderStudy);
   document.getElementById("studyViewMode").addEventListener("change", renderStudy);
   document.getElementById("mistakeSearch").addEventListener("input", renderMistakes);
+  document.getElementById("clearMistakeTagFilterBtn").addEventListener("click", clearMistakeTagFilter);
   document.getElementById("tagSearch").addEventListener("input", renderTags);
   document.getElementById("expandAllTagsBtn").addEventListener("click", expandAllTags);
   document.getElementById("collapseAllTagsBtn").addEventListener("click", collapseAllTags);
@@ -426,10 +428,16 @@ function renderStudyMiniCard(item) {
 
 function renderMistakes() {
   const query = document.getElementById("mistakeSearch").value.trim().toLowerCase();
-  const rows = state.mistakes.filter((item) => matchesMistake(item, query));
+  const activeTag = activeMistakeTagFilterId ? state.tags.find((tag) => tag.id === activeMistakeTagFilterId) : null;
+  const tagIds = activeTag ? descendantTagIds(activeTag.id) : [];
+  const taggedRows = activeTag
+    ? state.mistakes.filter((item) => (item.tagIds || []).some((tagId) => tagIds.includes(tagId)))
+    : state.mistakes;
+  const rows = taggedRows.filter((item) => matchesMistake(item, query));
+  renderMistakeTagFilterBar(activeTag);
   document.getElementById("mistakeList").innerHTML = rows.length
     ? rows.map((item) => renderItemCard("mistake", item)).join("")
-    : empty("还没有错题记录。");
+    : empty(activeTag ? (query ? "这个知识点下没有匹配搜索的错题。" : "这个知识点下还没有错题记录。") : "还没有错题记录。");
 }
 
 function renderItemCard(type, item) {
@@ -501,7 +509,7 @@ function renderTagMindNode(tag, query = "", tagScoreCache = new Map()) {
             <div class="mind-meta">
               <span class="badge ${tag.importance}">${importanceLabel(tag.importance)}</span>
               ${renderTagMemoryScore(tagSummary.score)}
-              ${!hasChildren && tagSummary.mistakeCount ? `<span class="mistake-count-badge">错题 ${tagSummary.mistakeCount}</span>` : ""}
+              ${tagSummary.mistakeCount ? `<button class="mistake-count-badge" onclick="jumpToTagMistakes('${tag.id}')" type="button">错题 ${tagSummary.mistakeCount}</button>` : ""}
             </div>
           </div>
         </div>
@@ -615,6 +623,27 @@ function renderHistory() {
       `;
     }).join("")
     : empty("还没有复习记录。");
+}
+
+function jumpToTagMistakes(tagId) {
+  const tag = state.tags.find((row) => row.id === tagId);
+  if (!tag) return;
+  activeMistakeTagFilterId = tag.id;
+  switchView("mistakes");
+  renderMistakes();
+}
+
+function clearMistakeTagFilter() {
+  activeMistakeTagFilterId = "";
+  renderMistakes();
+}
+
+function renderMistakeTagFilterBar(tag) {
+  const bar = document.getElementById("mistakeTagFilterBar");
+  const text = document.getElementById("mistakeTagFilterText");
+  if (!bar || !text) return;
+  bar.classList.toggle("hidden", !tag);
+  text.textContent = tag ? `当前知识点：${tagPath(tag)}，包含子知识点` : "";
 }
 
 function renderWeakTags() {
@@ -2027,7 +2056,7 @@ function tagMemorySummary(tag, cache = new Map()) {
   if (children.length) {
     let weightedTotal = 0;
     let totalWeight = 0;
-    let mistakeCount = 0;
+    let mistakeCount = directMistakeCount(tag.id);
     for (const child of children) {
       const childSummary = tagMemorySummary(child, cache);
       mistakeCount += childSummary.mistakeCount || 0;
@@ -2072,6 +2101,10 @@ function leafTagMemorySummary(tagId) {
     mistakeScore,
     mistakeCount: mistakeItems.length,
   };
+}
+
+function directMistakeCount(tagId) {
+  return state.mistakes.filter((item) => (item.tagIds || []).includes(tagId)).length;
 }
 
 function renderTagMemoryScore(score) {
@@ -2226,3 +2259,4 @@ window.renameTag = renameTag;
 window.removeTagFromField = removeTagFromField;
 window.cycleImportance = cycleImportance;
 window.toggleTagNode = toggleTagNode;
+window.jumpToTagMistakes = jumpToTagMistakes;
