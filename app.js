@@ -466,10 +466,6 @@ function renderTags() {
 }
 
 function renderTagMindNode(tag, query = "") {
-  const descendantIds = descendantTagIds(tag.id);
-  const linked = getAllItems().filter((item) => (item.tagIds || []).some((tagId) => descendantIds.includes(tagId)));
-  const directLinked = getAllItems().filter((item) => (item.tagIds || []).includes(tag.id));
-  const avg = linked.length ? Math.round(linked.reduce((sum, item) => sum + currentScore(item), 0) / linked.length) : 100;
   const children = state.tags
     .filter((child) => child.parentId === tag.id)
     .sort((a, b) => tagPath(a).localeCompare(tagPath(b), "zh-CN"));
@@ -489,9 +485,6 @@ function renderTagMindNode(tag, query = "") {
             <strong>${escapeHtml(tag.name)}</strong>
             <div class="mind-meta">
               <span class="badge ${tag.importance}">${importanceLabel(tag.importance)}</span>
-              <span>${directLinked.length} 直接</span>
-              <span>${linked.length} 含子</span>
-              <span>记忆 ${avg}</span>
             </div>
           </div>
         </div>
