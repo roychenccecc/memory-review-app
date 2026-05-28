@@ -4,6 +4,7 @@ const STORES = ["settings", "tags", "study", "mistakes", "logs", "tasks"];
 const BASE_INTERVALS = [1, 2, 4, 7, 15, 30];
 const IMPORTANCE_MULTIPLIER = { veryHigh: 0.55, high: 0.7, medium: 1, low: 1.3 };
 const IMPORTANCE_WEIGHT = { veryHigh: 45, high: 30, medium: 15, low: 0 };
+const TAG_SCORE_WEIGHT = { veryHigh: 5, high: 3, medium: 2, low: 1 };
 const RESULT_LABEL = { remembered: "熟记", unclear: "模糊", forgotten: "完全忘了" };
 const TYPE_LABEL = { study: "学习", mistake: "错题" };
 const STUDY_KIND_LABEL = { new: "新学", review: "复习" };
@@ -460,7 +461,8 @@ function renderItemCard(type, item) {
 function renderTags() {
   const query = document.getElementById("tagSearch").value.trim().toLowerCase();
   const roots = tagTreeRows().filter((row) => row.depth === 0).map((row) => row.tag);
-  const branches = roots.map((tag) => renderTagMindNode(tag, query)).filter(Boolean).join("");
+  const tagScoreCache = new Map();
+  const branches = roots.map((tag) => renderTagMindNode(tag, query, tagScoreCache)).filter(Boolean).join("");
   document.getElementById("tagList").innerHTML = roots.length
     ? branches
       ? `<div class="mind-map-canvas" style="--mind-map-zoom: ${tagMapZoom}">
@@ -473,15 +475,16 @@ function renderTags() {
   updateTagZoomText();
 }
 
-function renderTagMindNode(tag, query = "") {
+function renderTagMindNode(tag, query = "", tagScoreCache = new Map()) {
   const children = state.tags
     .filter((child) => child.parentId === tag.id)
     .sort((a, b) => tagPath(a).localeCompare(tagPath(b), "zh-CN"));
-  const childrenHtml = children.map((child) => renderTagMindNode(child, query)).filter(Boolean).join("");
+  const childrenHtml = children.map((child) => renderTagMindNode(child, query, tagScoreCache)).filter(Boolean).join("");
   const isMatch = !query || tagMatchesSearch(tag, query);
   if (query && !isMatch && !childrenHtml) return "";
   const hasChildren = children.length > 0;
   const collapsed = collapsedTagIds.has(tag.id) && !query;
+  const tagScore = tagMemoryScore(tag, tagScoreCache);
   return `
     <div class="mind-node ${isMatch && query ? "search-hit" : ""}">
       <article class="mind-card">
@@ -493,6 +496,7 @@ function renderTagMindNode(tag, query = "") {
             <strong>${escapeHtml(tag.name)}</strong>
             <div class="mind-meta">
               <span class="badge ${tag.importance}">${importanceLabel(tag.importance)}</span>
+              ${renderTagMemoryScore(tagScore)}
             </div>
           </div>
         </div>
@@ -502,7 +506,7 @@ function renderTagMindNode(tag, query = "") {
           <button class="small-button danger" onclick="deleteTag('${tag.id}')">删除</button>
         </div>
       </article>
-      ${hasChildren && !collapsed ? `<div class="mind-children">${query ? childrenHtml : children.map((child) => renderTagMindNode(child, query)).join("")}</div>` : ""}
+      ${hasChildren && !collapsed ? `<div class="mind-children">${query ? childrenHtml : children.map((child) => renderTagMindNode(child, query, tagScoreCache)).join("")}</div>` : ""}
     </div>
   `;
 }
@@ -1958,6 +1962,40 @@ function descendantTagIds(tagId) {
     }
   }
   return [...ids];
+}
+
+function tagMemoryScore(tag, cache = new Map()) {
+  if (!tag) return null;
+  if (cache.has(tag.id)) return cache.get(tag.id);
+
+  const children = state.tags.filter((child) => child.parentId === tag.id);
+  let score = null;
+  if (children.length) {
+    let weightedTotal = 0;
+    let totalWeight = 0;
+    for (const child of children) {
+      const childScore = tagMemoryScore(child, cache);
+      if (childScore == null) continue;
+      const weight = TAG_SCORE_WEIGHT[child.importance] || TAG_SCORE_WEIGHT.medium;
+      weightedTotal += childScore * weight;
+      totalWeight += weight;
+    }
+    score = totalWeight ? Math.round(weightedTotal / totalWeight) : null;
+  } else {
+    const linkedItems = getAllItems().filter((item) => (item.tagIds || []).includes(tag.id));
+    if (linkedItems.length) {
+      const total = linkedItems.reduce((sum, item) => sum + currentScore(item), 0);
+      score = Math.round(total / linkedItems.length);
+    }
+  }
+
+  cache.set(tag.id, score);
+  return score;
+}
+
+function renderTagMemoryScore(score) {
+  if (score == null) return '<span class="memory-score-badge empty-score">暂无记忆分</span>';
+  return `<span class="memory-score-badge ${scoreClass(score)}">记忆分 ${score}</span>`;
 }
 
 function scoreClass(score) {
