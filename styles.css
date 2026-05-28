@@ -301,10 +301,13 @@ button {
 }
 
 .tag-list.mind-map {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   min-height: 520px;
-  align-content: start;
   overflow: auto;
-  padding: 8px;
+  gap: 18px;
+  padding: 16px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #f8faf8;
@@ -317,25 +320,37 @@ button {
 
 .tag-tree-node {
   position: relative;
-  display: grid;
-  gap: 10px;
+  display: flex;
+  align-items: center;
+  gap: 30px;
+  width: max-content;
 }
 
 .tag-tree-children {
   position: relative;
-  display: grid;
-  gap: 12px;
-  margin-left: 34px;
-  padding-left: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-left: 0;
+  padding-left: 30px;
   border-left: 2px solid #c7d6d2;
+}
+
+.tag-tree-children::before {
+  content: "";
+  position: absolute;
+  left: -30px;
+  top: 50%;
+  width: 30px;
+  border-top: 2px solid #c7d6d2;
 }
 
 .tag-tree-children > .tag-tree-node::before {
   content: "";
   position: absolute;
-  left: -24px;
-  top: 26px;
-  width: 24px;
+  left: -30px;
+  top: 50%;
+  width: 30px;
   border-top: 2px solid #c7d6d2;
 }
 
@@ -370,11 +385,15 @@ button {
 }
 
 .mind-map .tag-card {
+  flex: 0 0 auto;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
+  grid-template-columns: 1fr;
+  width: max-content;
+  min-width: 270px;
+  max-width: 440px;
+  gap: 8px;
   align-items: center;
-  padding: 12px 14px;
+  padding: 10px 12px;
 }
 
 .mind-map .meta {
@@ -396,12 +415,13 @@ button {
 
 .mind-map .card-actions {
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
+  gap: 6px;
 }
 
 .mind-map .small-button {
-  min-height: 34px;
-  padding: 6px 11px;
+  min-height: 30px;
+  padding: 5px 9px;
   white-space: nowrap;
 }
 
@@ -986,10 +1006,30 @@ dialog::backdrop {
 
   .mind-map .tag-card {
     grid-template-columns: 1fr;
+    width: auto;
+    min-width: 0;
   }
 
   .mind-map .card-actions {
     justify-content: flex-start;
+  }
+
+  .tag-list.mind-map {
+    align-items: stretch;
+  }
+
+  .tag-tree-node {
+    display: grid;
+    width: auto;
+  }
+
+  .tag-tree-children {
+    margin-left: 14px;
+    padding-left: 18px;
+  }
+
+  .tag-tree-children::before {
+    display: none;
   }
 
   .card-actions {
