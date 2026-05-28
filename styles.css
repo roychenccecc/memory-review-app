@@ -302,6 +302,7 @@ button {
 
 .tag-list.mind-map {
   min-height: 520px;
+  align-content: start;
   overflow: auto;
   padding: 8px;
   border: 1px solid var(--line);
@@ -366,6 +367,42 @@ button {
 .tag-tree-node.search-hit > .tag-card {
   border-color: #2563eb;
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.11);
+}
+
+.mind-map .tag-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+}
+
+.mind-map .meta {
+  align-items: center;
+  gap: 7px;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.mind-map .tag-pill,
+.mind-map .badge {
+  min-height: 26px;
+  font-size: 13px;
+}
+
+.mind-map .tag-toggle {
+  margin-top: 0;
+}
+
+.mind-map .card-actions {
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.mind-map .small-button {
+  min-height: 34px;
+  padding: 6px 11px;
+  white-space: nowrap;
 }
 
 .sync-box {
@@ -947,8 +984,20 @@ dialog::backdrop {
     grid-template-columns: 8px minmax(0, 1fr);
   }
 
+  .mind-map .tag-card {
+    grid-template-columns: 1fr;
+  }
+
+  .mind-map .card-actions {
+    justify-content: flex-start;
+  }
+
   .card-actions {
     grid-column: 2;
     justify-content: flex-start;
+  }
+
+  .mind-map .card-actions {
+    grid-column: auto;
   }
 }
