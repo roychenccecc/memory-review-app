@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>自适应复习与错题管理器</title>
-    <link rel="stylesheet" href="styles.css?v=20260528-mindmap-main" />
+    <link rel="stylesheet" href="styles.css?v=20260528-map-zoom" />
   </head>
   <body>
     <div class="app-shell">
@@ -97,6 +97,9 @@
                 <input class="search" id="tagSearch" placeholder="搜索知识点、路径" />
                 <button class="secondary" id="expandAllTagsBtn" type="button">展开</button>
                 <button class="secondary" id="collapseAllTagsBtn" type="button">收起</button>
+                <button class="secondary zoom-chip" id="resetTagZoomBtn" type="button" aria-label="重置缩放">
+                  <span id="tagZoomText">100%</span>
+                </button>
                 <button class="primary" data-open-modal="tagManageModal" type="button">管理知识点</button>
               </div>
             </div>
@@ -454,6 +457,6 @@
 
     <datalist id="tagOptions"></datalist>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="app.js?v=20260528-mindmap-main"></script>
+    <script src="app.js?v=20260528-map-zoom"></script>
   </body>
 </html>
