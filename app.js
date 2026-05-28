@@ -25,6 +25,7 @@ let state = {
   tasks: [],
 };
 const treeLevelCounters = { study: 0, mistake: 0 };
+let collapsedTagIds = new Set();
 
 document.addEventListener("DOMContentLoaded", async () => {
   db = await openDb();
@@ -131,6 +132,9 @@ function bindEvents() {
   document.getElementById("studySearch").addEventListener("input", renderStudy);
   document.getElementById("studyViewMode").addEventListener("change", renderStudy);
   document.getElementById("mistakeSearch").addEventListener("input", renderMistakes);
+  document.getElementById("tagSearch").addEventListener("input", renderTags);
+  document.getElementById("expandAllTagsBtn").addEventListener("click", expandAllTags);
+  document.getElementById("collapseAllTagsBtn").addEventListener("click", collapseAllTags);
   document.getElementById("exportJsonBtn").addEventListener("click", exportJson);
   document.getElementById("exportCsvBtn").addEventListener("click", exportCsv);
   document.getElementById("exportIcsBtn").addEventListener("click", exportIcs);
@@ -448,13 +452,20 @@ function renderItemCard(type, item) {
 }
 
 function renderTags() {
+  const query = document.getElementById("tagSearch").value.trim().toLowerCase();
   const roots = tagTreeRows().filter((row) => row.depth === 0).map((row) => row.tag);
+  const branches = roots.map((tag) => renderTagMindNode(tag, query)).filter(Boolean).join("");
   document.getElementById("tagList").innerHTML = roots.length
-    ? `<div class="tag-tree">${roots.map(renderTagTreeNode).join("")}</div>`
+    ? branches
+      ? `<div class="mind-map-canvas">
+          <div class="mind-map-title">知识点</div>
+          <div class="mind-map-branches">${branches}</div>
+        </div>`
+      : empty("没有找到匹配的知识点。")
     : empty("还没有知识点。先在左侧新增，之后错题可直接从知识点树里选择。");
 }
 
-function renderTagTreeNode(tag) {
+function renderTagMindNode(tag, query = "") {
   const descendantIds = descendantTagIds(tag.id);
   const linked = getAllItems().filter((item) => (item.tagIds || []).some((tagId) => descendantIds.includes(tagId)));
   const directLinked = getAllItems().filter((item) => (item.tagIds || []).includes(tag.id));
@@ -462,25 +473,63 @@ function renderTagTreeNode(tag) {
   const children = state.tags
     .filter((child) => child.parentId === tag.id)
     .sort((a, b) => tagPath(a).localeCompare(tagPath(b), "zh-CN"));
+  const childrenHtml = children.map((child) => renderTagMindNode(child, query)).filter(Boolean).join("");
+  const isMatch = !query || tagMatchesSearch(tag, query);
+  if (query && !isMatch && !childrenHtml) return "";
+  const hasChildren = children.length > 0;
+  const collapsed = collapsedTagIds.has(tag.id) && !query;
   return `
-    <div class="tag-tree-node">
-      <article class="tag-card">
-        <div class="meta">
-          ${renderTagPill(tag)}
-          <span class="badge ${tag.importance}">${importanceLabel(tag.importance)}</span>
-          <span>${directLinked.length} 条直接关联</span>
-          <span>${linked.length} 条含子知识点</span>
-          <span>平均记忆分 ${avg}</span>
+    <div class="mind-node ${isMatch && query ? "search-hit" : ""}">
+      <article class="mind-card">
+        <div class="mind-card-main">
+          ${hasChildren
+            ? `<button class="mind-toggle" onclick="toggleTagNode('${tag.id}')" type="button" aria-label="${collapsed ? "展开" : "收起"}">${collapsed ? "+" : "-"}</button>`
+            : '<span class="mind-toggle placeholder"></span>'}
+          <div>
+            <strong>${escapeHtml(tag.name)}</strong>
+            <div class="mind-meta">
+              <span class="badge ${tag.importance}">${importanceLabel(tag.importance)}</span>
+              <span>${directLinked.length} 直接</span>
+              <span>${linked.length} 含子</span>
+              <span>记忆 ${avg}</span>
+            </div>
+          </div>
         </div>
-        <div class="card-actions">
+        <div class="card-actions mind-actions">
           <button class="small-button" onclick="renameTag('${tag.id}')">重命名</button>
           <button class="small-button" onclick="cycleImportance('${tag.id}')">切换重要性</button>
           <button class="small-button danger" onclick="deleteTag('${tag.id}')">删除</button>
         </div>
       </article>
-      ${children.length ? `<div class="tag-tree-children">${children.map(renderTagTreeNode).join("")}</div>` : ""}
+      ${hasChildren && !collapsed ? `<div class="mind-children">${query ? childrenHtml : children.map((child) => renderTagMindNode(child, query)).join("")}</div>` : ""}
     </div>
   `;
+}
+
+function tagMatchesSearch(tag, query) {
+  return [tag.name, tagPath(tag), importanceLabel(tag.importance)]
+    .join(" ")
+    .toLowerCase()
+    .includes(query);
+}
+
+function toggleTagNode(idValue) {
+  if (collapsedTagIds.has(idValue)) {
+    collapsedTagIds.delete(idValue);
+  } else {
+    collapsedTagIds.add(idValue);
+  }
+  renderTags();
+}
+
+function expandAllTags() {
+  collapsedTagIds.clear();
+  renderTags();
+}
+
+function collapseAllTags() {
+  collapsedTagIds = new Set(state.tags.filter((tag) => state.tags.some((child) => child.parentId === tag.id)).map((tag) => tag.id));
+  renderTags();
 }
 
 function renderHistory() {
@@ -2004,3 +2053,4 @@ window.deleteSelectedTag = deleteSelectedTag;
 window.renameTag = renameTag;
 window.removeTagFromField = removeTagFromField;
 window.cycleImportance = cycleImportance;
+window.toggleTagNode = toggleTagNode;
