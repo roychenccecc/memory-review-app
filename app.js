@@ -1961,7 +1961,7 @@ function matchesMistake(item, query) {
 
 function parseTags(value) {
   return String(value || "")
-    .split(/[,，、\n]/)
+    .split(/[,，\n]/)
     .map((name) => name.trim())
     .filter(Boolean);
 }
