@@ -730,6 +730,16 @@ textarea {
   padding: 14px;
 }
 
+.modal-history-list {
+  max-height: min(62vh, 560px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.compact-history-card {
+  padding: 12px;
+}
+
 .task-card {
   display: grid;
   grid-template-columns: 10px minmax(0, 1fr) auto;
