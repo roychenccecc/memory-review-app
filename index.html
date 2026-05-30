@@ -474,7 +474,7 @@
             <input name="logId" type="hidden" />
             <div class="recall-control">
               <div class="recall-head">
-                <strong>这次记住了多少？</strong>
+                <strong id="studyRecordRecallLabel">这次记住了多少？</strong>
                 <label>
                   <input id="studyRecordPercentInput" name="recallPercent" type="number" min="0" max="100" step="1" value="80" />
                   %
@@ -482,6 +482,7 @@
               </div>
               <input id="studyRecordPercentRange" type="range" min="0" max="100" step="1" value="80" />
             </div>
+            <div class="section-score-list" id="studySectionScores"></div>
             <label>
               本次复习备注
               <textarea name="notes" rows="3" placeholder="这次卡在哪里、下次重点看什么"></textarea>
@@ -539,6 +540,6 @@
 
     <datalist id="tagOptions"></datalist>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="app.js?v=20260530-study-record-combined"></script>
+    <script src="app.js?v=20260530-section-study-scores"></script>
   </body>
 </html>
