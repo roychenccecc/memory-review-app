@@ -1008,7 +1008,7 @@ dialog::backdrop {
 
 .section-score-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .section-score-head {
@@ -1021,10 +1021,10 @@ dialog::backdrop {
 
 .section-score-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 88px;
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) 78px;
+  gap: 8px;
   align-items: center;
-  padding: 10px;
+  padding: 9px 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fbfcfb;
@@ -1032,6 +1032,36 @@ dialog::backdrop {
 
 .section-score-row > input {
   grid-column: 1 / -1;
+  height: 8px;
+  padding: 0;
+}
+
+.section-score-main {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.section-score-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.section-score-controls label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.section-score-controls select {
+  min-height: 30px;
+  padding: 4px 28px 4px 8px;
 }
 
 .section-score-row label {
