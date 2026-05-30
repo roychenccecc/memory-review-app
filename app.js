@@ -137,6 +137,9 @@ function bindEvents() {
   document.getElementById("tagForm").addEventListener("submit", saveTag);
   document.getElementById("settingsForm").addEventListener("submit", saveSettings);
   document.getElementById("reviewForm").addEventListener("submit", saveReview);
+  document.getElementById("mistakeRecordForm").addEventListener("submit", saveMistakeRecord);
+  document.getElementById("mistakeRecordPercentRange").addEventListener("input", syncMistakeRecordRecallFromRange);
+  document.getElementById("mistakeRecordPercentInput").addEventListener("input", syncMistakeRecordRecallFromInput);
   document.getElementById("reviewFilter").addEventListener("change", renderDashboard);
   document.getElementById("historyFilter").addEventListener("change", renderHistory);
   document.getElementById("studySearch").addEventListener("input", renderStudy);
@@ -339,7 +342,7 @@ function renderTaskCard(task) {
       </div>
       <div class="card-actions">
         <button class="small-button" onclick="openEditItem('${task.sourceType}','${task.sourceId}')">编辑内容</button>
-        <button class="small-button" onclick="openReview('${task.sourceType}','${task.sourceId}','${task.id || ""}')">记录结果</button>
+        <button class="small-button" onclick="${task.sourceType === "mistake" ? `openMistakeRecord('${task.sourceId}','${task.id || ""}')` : `openReview('${task.sourceType}','${task.sourceId}','${task.id || ""}')`}">${task.sourceType === "mistake" ? "错题记录" : "记录结果"}</button>
         <button class="small-button" onclick="postponeTask('${task.id || ""}', '${task.sourceType}', '${task.sourceId}')">延后1天</button>
       </div>
     </article>
@@ -465,8 +468,7 @@ function renderItemCard(type, item) {
       ${type === "mistake" && item.image ? `<img class="mistake-image" src="${item.image}" alt="错题图片" />` : ""}
       <div class="card-actions">
         <button class="small-button" onclick="openEditItem('${type}','${item.id}')">编辑</button>
-        <button class="small-button" onclick="openReview('${type}','${item.id}','')">${type === "mistake" ? "记录错因" : "记录复习"}</button>
-        ${type === "mistake" ? `<button class="small-button" onclick="openMistakeHistory('${item.id}')">错因记录</button>` : ""}
+        ${type === "mistake" ? `<button class="small-button" onclick="openMistakeRecord('${item.id}')">错题记录</button>` : `<button class="small-button" onclick="openReview('${type}','${item.id}','')">记录复习</button>`}
         <button class="small-button danger" onclick="deleteItem('${type}','${item.id}')">删除</button>
       </div>
     </article>
@@ -628,14 +630,21 @@ function renderHistory() {
     : empty("还没有复习记录。");
 }
 
-function openMistakeHistory(mistakeId) {
+function openMistakeRecord(mistakeId, taskId = "") {
   const mistake = state.mistakes.find((item) => item.id === mistakeId);
   if (!mistake) {
     toast("没有找到这道错题。");
     return;
   }
-  document.getElementById("mistakeHistoryTitle").textContent = `错因记录：${mistake.location || firstLine(mistake.question) || "未命名错题"}`;
-  document.getElementById("mistakeHistoryList").innerHTML = renderMistakeHistoryList(mistake);
+  document.getElementById("mistakeRecordTitle").textContent = `错题记录：${mistake.location || firstLine(mistake.question) || "未命名错题"}`;
+  const form = document.getElementById("mistakeRecordForm");
+  form.reset();
+  formField(form, "sourceType").value = "mistake";
+  formField(form, "sourceId").value = mistake.id;
+  formField(form, "taskId").value = taskId || "";
+  formField(form, "logId").value = "";
+  setMistakeRecordRecallPercent(80);
+  document.getElementById("mistakeRecordHistoryList").innerHTML = renderMistakeHistoryList(mistake);
   openModal("mistakeHistoryModal");
 }
 
@@ -1181,6 +1190,29 @@ async function saveSettings(event) {
 async function saveReview(event) {
   event.preventDefault();
   const form = event.currentTarget;
+  const saved = await persistReviewForm(form);
+  if (!saved) return;
+  form.reset();
+  form.closest("dialog").close();
+  toast(saved.updated ? "复习记录已修改。" : `已记录为“记住 ${saved.recallPercent}%”，下一次复习已更新。`);
+  render();
+}
+
+async function saveMistakeRecord(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const saved = await persistReviewForm(form);
+  if (!saved) return;
+  formField(form, "logId").value = "";
+  formField(form, "notes").value = "";
+  setMistakeRecordRecallPercent(80);
+  const mistake = findItem("mistake", saved.sourceId);
+  if (mistake) document.getElementById("mistakeRecordHistoryList").innerHTML = renderMistakeHistoryList(mistake);
+  toast(saved.updated ? "错题记录已修改。" : `已保存错题记录，记住 ${saved.recallPercent}%。`);
+  render();
+}
+
+async function persistReviewForm(form) {
   const data = new FormData(form);
   const sourceType = data.get("sourceType");
   const sourceId = data.get("sourceId");
@@ -1189,15 +1221,11 @@ async function saveReview(event) {
   const recallPercent = clamp(Number(data.get("recallPercent") || 0), 0, 100);
   const result = resultFromPercent(recallPercent);
   const item = findItem(sourceType, sourceId);
-  if (!item) return;
+  if (!item) return null;
 
   if (logId) {
     await updateReviewLog({ logId, sourceType, sourceId, taskId, recallPercent, result, notes: data.get("notes").trim() });
-    form.reset();
-    form.closest("dialog").close();
-    toast("复习记录已修改。");
-    render();
-    return;
+    return { updated: true, sourceType, sourceId, recallPercent };
   }
 
   const logCreatedAt = now();
@@ -1272,10 +1300,7 @@ async function saveReview(event) {
 
   await createNextTask(sourceType, item, toDateInput(new Date()), result);
   await loadState();
-  form.reset();
-  form.closest("dialog").close();
-  toast(`已记录为“记住 ${recallPercent}%”，下一次复习已更新。`);
-  render();
+  return { updated: false, sourceType, sourceId, recallPercent };
 }
 
 async function updateReviewLog({ logId, sourceType, sourceId, taskId, recallPercent, result, notes }) {
@@ -1810,6 +1835,20 @@ function setRecallPercent(value) {
   const percent = clamp(Number(value) || 0, 0, 100);
   document.getElementById("recallPercentRange").value = percent;
   document.getElementById("recallPercentInput").value = percent;
+}
+
+function syncMistakeRecordRecallFromRange(event) {
+  setMistakeRecordRecallPercent(event.currentTarget.value);
+}
+
+function syncMistakeRecordRecallFromInput(event) {
+  setMistakeRecordRecallPercent(event.currentTarget.value);
+}
+
+function setMistakeRecordRecallPercent(value) {
+  const percent = clamp(Number(value) || 0, 0, 100);
+  document.getElementById("mistakeRecordPercentRange").value = percent;
+  document.getElementById("mistakeRecordPercentInput").value = percent;
 }
 
 async function postponeTask(taskId, sourceType, sourceId) {
@@ -2404,4 +2443,4 @@ window.removeTagFromField = removeTagFromField;
 window.cycleImportance = cycleImportance;
 window.toggleTagNode = toggleTagNode;
 window.jumpToTagMistakes = jumpToTagMistakes;
-window.openMistakeHistory = openMistakeHistory;
+window.openMistakeRecord = openMistakeRecord;
