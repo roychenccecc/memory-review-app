@@ -38,9 +38,11 @@ let collapsedTagIds = new Set();
 document.addEventListener("DOMContentLoaded", async () => {
   db = await openDb();
   await loadState();
+  const repairedLegacyTags = await repairLegacySplitEnumerationTags();
   bindEvents();
   setDefaultDates();
   render();
+  if (repairedLegacyTags) toast(`已修复 ${repairedLegacyTags} 条旧的顿号误拆标签。`);
 });
 
 function openDb() {
@@ -1499,6 +1501,86 @@ async function ensureTags(names) {
     ids.push(tag.id);
   }
   return [...new Set(ids)];
+}
+
+async function repairLegacySplitEnumerationTags() {
+  let repaired = 0;
+  for (const storeName of ["study", "mistakes"]) {
+    const rows = storeName === "study" ? state.study : state.mistakes;
+    for (const item of rows) {
+      const nextTagIds = await mergeLegacySplitTagIds(item.tagIds || []);
+      if (!sameArray(nextTagIds, item.tagIds || [])) {
+        item.tagIds = nextTagIds;
+        item.updatedAt = now();
+        await put(storeName, item);
+        repaired += 1;
+      }
+    }
+  }
+  if (repaired) await loadState();
+  return repaired;
+}
+
+async function mergeLegacySplitTagIds(tagIds) {
+  const mergedIds = [];
+  for (let index = 0; index < tagIds.length; index += 1) {
+    const baseTag = state.tags.find((tag) => tag.id === tagIds[index]);
+    if (!baseTag) continue;
+
+    const following = [];
+    let nextIndex = index + 1;
+    while (nextIndex < tagIds.length) {
+      const nextTag = state.tags.find((tag) => tag.id === tagIds[nextIndex]);
+      if (!isLegacySplitEnumerationPart(baseTag, nextTag)) break;
+      following.push(nextTag);
+      nextIndex += 1;
+    }
+
+    if (following.length >= 2) {
+      const mergedName = [baseTag.name, ...following.map((tag) => tag.name)].join("、");
+      const mergedTag = await createOrUpdateTag({
+        name: mergedName,
+        parentId: baseTag.parentId,
+        importance: baseTag.importance || "medium",
+        color: baseTag.color || "",
+      });
+      upsertStateTag(mergedTag);
+      mergedIds.push(mergedTag.id);
+      index = nextIndex - 1;
+    } else {
+      mergedIds.push(baseTag.id);
+    }
+  }
+  return [...new Set(mergedIds)];
+}
+
+function isLegacySplitEnumerationPart(baseTag, nextTag) {
+  if (!baseTag || !nextTag) return false;
+  if (!baseTag.parentId || nextTag.parentId) return false;
+  if (baseTag.name.includes("、") || nextTag.name.includes("、")) return false;
+  if (isStandaloneTagName(nextTag.name)) return false;
+  return tagsWereCreatedTogether(baseTag, nextTag);
+}
+
+function isStandaloneTagName(name) {
+  return /(题|考点|重点|难点|易错|高频|低频|简答|选择|填空|判断|计算|论述|名词|案例|材料|公式)$/.test(name);
+}
+
+function tagsWereCreatedTogether(firstTag, secondTag) {
+  const firstTime = Date.parse(firstTag.createdAt || firstTag.updatedAt || "");
+  const secondTime = Date.parse(secondTag.createdAt || secondTag.updatedAt || "");
+  if (!Number.isFinite(firstTime) || !Number.isFinite(secondTime)) return false;
+  return Math.abs(firstTime - secondTime) <= 60 * 1000;
+}
+
+function upsertStateTag(tag) {
+  const index = state.tags.findIndex((row) => row.id === tag.id);
+  if (index >= 0) state.tags[index] = tag;
+  else state.tags.push(tag);
+}
+
+function sameArray(first = [], second = []) {
+  return first.length === second.length && first.every((value, index) => value === second[index]);
 }
 
 async function ensureTagPath(rawName) {
