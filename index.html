@@ -462,15 +462,44 @@
     <dialog id="mistakeHistoryModal">
       <div class="modal-card">
         <div class="modal-head">
-          <h3 id="mistakeHistoryTitle">错题错因记录</h3>
+          <h3 id="mistakeRecordTitle">错题记录</h3>
           <button class="icon-button" data-close-modal type="button">×</button>
         </div>
-        <div class="history-list modal-history-list" id="mistakeHistoryList"></div>
+        <section class="modal-section">
+          <h4>本次记录</h4>
+          <form id="mistakeRecordForm">
+            <input name="sourceType" type="hidden" value="mistake" />
+            <input name="sourceId" type="hidden" />
+            <input name="taskId" type="hidden" />
+            <input name="logId" type="hidden" />
+            <div class="recall-control">
+              <div class="recall-head">
+                <strong>这次记住了多少？</strong>
+                <label>
+                  <input id="mistakeRecordPercentInput" name="recallPercent" type="number" min="0" max="100" step="1" value="80" />
+                  %
+                </label>
+              </div>
+              <input id="mistakeRecordPercentRange" type="range" min="0" max="100" step="1" value="80" />
+            </div>
+            <label>
+              本次错因 / 复盘
+              <textarea name="notes" rows="3" placeholder="这次又错在哪里、卡在哪里、下次怎么避免"></textarea>
+            </label>
+            <div class="modal-actions">
+              <button class="primary" type="submit">保存本次记录</button>
+            </div>
+          </form>
+        </section>
+        <section class="modal-section">
+          <h4>历史记录</h4>
+          <div class="history-list modal-history-list" id="mistakeRecordHistoryList"></div>
+        </section>
       </div>
     </dialog>
 
     <datalist id="tagOptions"></datalist>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="app.js?v=20260530-tag-row-layout"></script>
+    <script src="app.js?v=20260530-mistake-record-combined"></script>
   </body>
 </html>
