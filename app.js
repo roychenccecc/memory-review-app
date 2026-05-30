@@ -12,6 +12,7 @@ const MAX_MISTAKE_PENALTY = 18;
 const RESULT_LABEL = { remembered: "熟记", unclear: "模糊", forgotten: "完全忘了" };
 const TYPE_LABEL = { study: "学习", mistake: "错题" };
 const STUDY_KIND_LABEL = { new: "新学", review: "复习" };
+const QUESTION_TYPES = ["选择题", "填空题", "判断题", "简答题", "论述题", "计算题", "案例题", "综合题"];
 
 let db;
 let pastedMistakeImage = "";
@@ -142,6 +143,7 @@ function bindEvents() {
   document.getElementById("studyRecordPercentInput").addEventListener("input", syncStudyRecordRecallFromInput);
   document.getElementById("studySectionScores").addEventListener("input", syncStudySectionScore);
   document.getElementById("mistakeRecordForm").addEventListener("submit", saveMistakeRecord);
+  document.getElementById("questionTypeForm").addEventListener("submit", saveQuestionTypes);
   document.getElementById("mistakeRecordPercentRange").addEventListener("input", syncMistakeRecordRecallFromRange);
   document.getElementById("mistakeRecordPercentInput").addEventListener("input", syncMistakeRecordRecallFromInput);
   document.getElementById("reviewFilter").addEventListener("change", renderDashboard);
@@ -521,11 +523,13 @@ function renderTagMindNode(tag, query = "", tagScoreCache = new Map()) {
               ${renderTagMemoryScore(tagSummary.score)}
               ${tagSummary.mistakeCount ? `<button class="mistake-count-badge" onclick="jumpToTagMistakes('${tag.id}')" type="button">错题 ${tagSummary.mistakeCount}</button>` : ""}
             </div>
+            ${renderQuestionTypeBadges(tag)}
           </div>
         </div>
         <div class="card-actions mind-actions">
           <button class="small-button" onclick="renameTag('${tag.id}')">重命名</button>
           <button class="small-button" onclick="cycleImportance('${tag.id}')">切换重要性</button>
+          <button class="small-button" onclick="openQuestionTypes('${tag.id}')">题型</button>
           <button class="small-button danger" onclick="deleteTag('${tag.id}')">删除</button>
         </div>
       </article>
@@ -535,10 +539,16 @@ function renderTagMindNode(tag, query = "", tagScoreCache = new Map()) {
 }
 
 function tagMatchesSearch(tag, query) {
-  return [tag.name, tagPath(tag), importanceLabel(tag.importance)]
+  return [tag.name, tagPath(tag), importanceLabel(tag.importance), ...(tag.questionTypes || [])]
     .join(" ")
     .toLowerCase()
     .includes(query);
+}
+
+function renderQuestionTypeBadges(tag) {
+  const types = Array.isArray(tag.questionTypes) ? tag.questionTypes : [];
+  if (!types.length) return "";
+  return `<div class="question-type-row">${types.map((type) => `<span>${escapeHtml(type)}</span>`).join("")}</div>`;
 }
 
 function toggleTagNode(idValue) {
@@ -2167,6 +2177,37 @@ async function cycleImportance(idValue) {
   render();
 }
 
+function openQuestionTypes(tagId) {
+  const tag = state.tags.find((row) => row.id === tagId);
+  if (!tag) return;
+  const form = document.getElementById("questionTypeForm");
+  form.reset();
+  formField(form, "tagId").value = tag.id;
+  setText("questionTypeTitle", `考察题型：${tagPath(tag)}`);
+  document.getElementById("questionTypeOptions").innerHTML = QUESTION_TYPES.map((type) => `
+    <label class="check-option">
+      <input type="checkbox" name="questionTypes" value="${escapeHtml(type)}" ${(tag.questionTypes || []).includes(type) ? "checked" : ""} />
+      <span>${escapeHtml(type)}</span>
+    </label>
+  `).join("");
+  openModal("questionTypeModal");
+}
+
+async function saveQuestionTypes(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const tag = state.tags.find((row) => row.id === formField(form, "tagId").value);
+  if (!tag) return;
+  const selected = [...form.querySelectorAll("[name='questionTypes']:checked")].map((input) => input.value);
+  tag.questionTypes = selected;
+  tag.updatedAt = now();
+  await put("tags", tag);
+  await loadState();
+  form.closest("dialog").close();
+  toast("考察题型已保存。");
+  render();
+}
+
 async function addSeedData() {
   if (state.study.length || state.mistakes.length || state.tags.length) {
     toast("已有数据，示例不会重复加入。");
@@ -2666,3 +2707,4 @@ window.toggleTagNode = toggleTagNode;
 window.jumpToTagMistakes = jumpToTagMistakes;
 window.openMistakeRecord = openMistakeRecord;
 window.openStudyRecord = openStudyRecord;
+window.openQuestionTypes = openQuestionTypes;
