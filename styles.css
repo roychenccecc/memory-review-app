@@ -910,6 +910,18 @@ dialog::backdrop {
   margin: 0;
 }
 
+.modal-section {
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.modal-section h4 {
+  margin: 0;
+  font-size: 15px;
+}
+
 .icon-button {
   display: grid;
   width: 36px;
