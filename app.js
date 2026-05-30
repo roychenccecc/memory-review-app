@@ -446,7 +446,7 @@ function renderItemCard(type, item) {
   const title = type === "study" ? item.title : item.location || firstLine(item.question) || "未命名错题";
   const body = type === "study"
     ? item.notes
-    : [item.question && `题干：${item.question}`, item.answer && `答案：${item.answer}`, `错因：${item.reason}`].filter(Boolean).join("\n\n");
+    : [item.question && `题干：${item.question}`, item.answer && `答案：${item.answer}`, `初次错因：${item.reason}`].filter(Boolean).join("\n\n");
   const date = item.date || item.createdAt.slice(0, 10);
   return `
     <article class="item-card">
@@ -463,8 +463,8 @@ function renderItemCard(type, item) {
       ${type === "mistake" && item.image ? `<img class="mistake-image" src="${item.image}" alt="错题图片" />` : ""}
       <div class="card-actions">
         <button class="small-button" onclick="openEditItem('${type}','${item.id}')">编辑</button>
-        <button class="small-button" onclick="openReview('${type}','${item.id}','')">记录复习</button>
-        ${type === "mistake" ? `<button class="small-button" onclick="openMistakeHistory('${item.id}')">复习记录</button>` : ""}
+        <button class="small-button" onclick="openReview('${type}','${item.id}','')">${type === "mistake" ? "记录错因" : "记录复习"}</button>
+        ${type === "mistake" ? `<button class="small-button" onclick="openMistakeHistory('${item.id}')">错因记录</button>` : ""}
         <button class="small-button danger" onclick="deleteItem('${type}','${item.id}')">删除</button>
       </div>
     </article>
@@ -632,30 +632,39 @@ function openMistakeHistory(mistakeId) {
     toast("没有找到这道错题。");
     return;
   }
-  document.getElementById("mistakeHistoryTitle").textContent = `错题复习记录：${mistake.location || firstLine(mistake.question) || "未命名错题"}`;
-  document.getElementById("mistakeHistoryList").innerHTML = renderMistakeHistoryList(mistake.id);
+  document.getElementById("mistakeHistoryTitle").textContent = `错因记录：${mistake.location || firstLine(mistake.question) || "未命名错题"}`;
+  document.getElementById("mistakeHistoryList").innerHTML = renderMistakeHistoryList(mistake);
   openModal("mistakeHistoryModal");
 }
 
-function renderMistakeHistoryList(mistakeId) {
+function renderMistakeHistoryList(mistake) {
   const logs = state.logs
-    .filter((log) => log.sourceType === "mistake" && log.sourceId === mistakeId)
+    .filter((log) => log.sourceType === "mistake" && log.sourceId === mistake.id)
     .sort((a, b) => (b.createdAt || b.date || "").localeCompare(a.createdAt || a.date || ""));
-  if (!logs.length) return empty("这道错题还没有复习记录。");
-  return logs.map((log, index) => `
+  const initialReason = `
     <article class="history-card compact-history-card">
       <div class="meta">
-        <span>第 ${logs.length - index} 次</span>
+        <span>初次记录</span>
+        <span>${formatDate(mistake.date || mistake.createdAt?.slice(0, 10))}</span>
+      </div>
+      <p class="body-text">${escapeHtml(mistake.reason || "没有填写错因。")}</p>
+    </article>
+  `;
+  const logRows = logs.map((log, index) => `
+    <article class="history-card compact-history-card">
+      <div class="meta">
+        <span>第 ${logs.length - index} 次再错/复盘</span>
         <span>${formatDate(log.date)}</span>
         <span>记住 ${Number(log.recallPercent ?? log.afterScore ?? 0)}%</span>
         <span>分数 ${Number(log.beforeScore ?? 0)} → ${Number(log.afterScore ?? 0)}</span>
       </div>
-      ${log.notes ? `<p class="body-text">${escapeHtml(log.notes)}</p>` : '<p class="body-text muted">没有备注。</p>'}
+      ${log.notes ? `<p class="body-text">${escapeHtml(log.notes)}</p>` : '<p class="body-text muted">没有填写本次错因。</p>'}
       <div class="card-actions">
         <button class="small-button" onclick="openEditReview('${log.id}')">修改记录</button>
       </div>
     </article>
   `).join("");
+  return `${logRows}${initialReason}`;
 }
 
 function jumpToTagMistakes(tagId) {
@@ -1659,11 +1668,24 @@ function openModal(idValue) {
   }
 }
 
+function configureReviewModalForType(sourceType) {
+  const isMistake = sourceType === "mistake";
+  setText("reviewNotesLabel", isMistake ? "本次错因 / 复盘" : "复习备注");
+  setText("reviewSubmitBtn", isMistake ? "保存错因记录" : "保存结果");
+  const notes = document.querySelector("#reviewForm [name='notes']");
+  if (notes) {
+    notes.placeholder = isMistake
+      ? "这次又错在哪里、卡在哪里、下次怎么避免"
+      : "这次卡在哪里、下次重点看什么";
+  }
+}
+
 function openReview(sourceType, sourceId, taskId) {
   const item = findItem(sourceType, sourceId);
   if (!item) return;
   const title = sourceType === "study" ? item.title : item.location || firstLine(item.question) || "未命名错题";
-  document.getElementById("reviewModalTitle").textContent = `记录复习结果：${title}`;
+  document.getElementById("reviewModalTitle").textContent = `${sourceType === "mistake" ? "记录错因" : "记录复习结果"}：${title}`;
+  configureReviewModalForType(sourceType);
   const form = document.getElementById("reviewForm");
   form.sourceType.value = sourceType;
   form.sourceId.value = sourceId;
@@ -1682,7 +1704,8 @@ function openEditReview(logId) {
   const historyModal = document.getElementById("mistakeHistoryModal");
   if (historyModal?.open) historyModal.close();
   const title = log.sourceType === "study" ? item.title : item.location || firstLine(item.question) || "未命名错题";
-  document.getElementById("reviewModalTitle").textContent = `修改复习记录：${title}`;
+  document.getElementById("reviewModalTitle").textContent = `${log.sourceType === "mistake" ? "修改错因记录" : "修改复习记录"}：${title}`;
+  configureReviewModalForType(log.sourceType);
   const form = document.getElementById("reviewForm");
   form.sourceType.value = log.sourceType;
   form.sourceId.value = log.sourceId;
