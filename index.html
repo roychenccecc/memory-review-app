@@ -459,8 +459,18 @@
       </form>
     </dialog>
 
+    <dialog id="mistakeHistoryModal">
+      <div class="modal-card">
+        <div class="modal-head">
+          <h3 id="mistakeHistoryTitle">错题复习记录</h3>
+          <button class="icon-button" data-close-modal type="button">×</button>
+        </div>
+        <div class="history-list modal-history-list" id="mistakeHistoryList"></div>
+      </div>
+    </dialog>
+
     <datalist id="tagOptions"></datalist>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="app.js?v=20260530-tag-separator"></script>
+    <script src="app.js?v=20260530-mistake-history"></script>
   </body>
 </html>
