@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>自适应复习与错题管理器</title>
-    <link rel="stylesheet" href="styles.css?v=20260530-section-control-polish" />
+    <link rel="stylesheet" href="styles.css?v=20260530-custom-question-types" />
   </head>
   <body>
     <div class="app-shell">
@@ -546,6 +546,10 @@
         </div>
         <input name="tagId" type="hidden" />
         <div class="check-grid" id="questionTypeOptions"></div>
+        <div class="inline-add">
+          <input id="newQuestionTypeName" placeholder="新增自定义题型" />
+          <button class="small-button" id="addQuestionTypeBtn" type="button">添加题型</button>
+        </div>
         <div class="modal-actions">
           <button class="secondary" data-close-modal type="button">取消</button>
           <button class="primary" type="submit">保存题型</button>
@@ -555,6 +559,6 @@
 
     <datalist id="tagOptions"></datalist>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="app.js?v=20260530-question-types"></script>
+    <script src="app.js?v=20260530-custom-question-types"></script>
   </body>
 </html>
