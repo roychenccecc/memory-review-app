@@ -449,12 +449,12 @@
           </div>
         </div>
         <label>
-          复习备注
+          <span id="reviewNotesLabel">复习备注</span>
           <textarea name="notes" rows="3" placeholder="这次卡在哪里、下次重点看什么"></textarea>
         </label>
         <div class="modal-actions">
           <button class="secondary" data-close-modal type="button">取消</button>
-          <button class="primary" type="submit">保存结果</button>
+          <button class="primary" id="reviewSubmitBtn" type="submit">保存结果</button>
         </div>
       </form>
     </dialog>
@@ -462,7 +462,7 @@
     <dialog id="mistakeHistoryModal">
       <div class="modal-card">
         <div class="modal-head">
-          <h3 id="mistakeHistoryTitle">错题复习记录</h3>
+          <h3 id="mistakeHistoryTitle">错题错因记录</h3>
           <button class="icon-button" data-close-modal type="button">×</button>
         </div>
         <div class="history-list modal-history-list" id="mistakeHistoryList"></div>
@@ -471,6 +471,6 @@
 
     <datalist id="tagOptions"></datalist>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="app.js?v=20260530-mistake-history"></script>
+    <script src="app.js?v=20260530-mistake-reason-history"></script>
   </body>
 </html>
