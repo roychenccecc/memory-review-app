@@ -538,8 +538,23 @@
       </div>
     </dialog>
 
+    <dialog id="questionTypeModal">
+      <form id="questionTypeForm" class="modal-card tag-manage-modal">
+        <div class="modal-head">
+          <h3 id="questionTypeTitle">考察题型</h3>
+          <button class="icon-button" data-close-modal type="button">×</button>
+        </div>
+        <input name="tagId" type="hidden" />
+        <div class="check-grid" id="questionTypeOptions"></div>
+        <div class="modal-actions">
+          <button class="secondary" data-close-modal type="button">取消</button>
+          <button class="primary" type="submit">保存题型</button>
+        </div>
+      </form>
+    </dialog>
+
     <datalist id="tagOptions"></datalist>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="app.js?v=20260530-section-control-polish"></script>
+    <script src="app.js?v=20260530-question-types"></script>
   </body>
 </html>
