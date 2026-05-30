@@ -1006,6 +1006,56 @@ dialog::backdrop {
   font-size: 12px;
 }
 
+.section-score-list {
+  display: grid;
+  gap: 10px;
+}
+
+.section-score-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+}
+
+.section-score-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 88px;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfb;
+}
+
+.section-score-row > input {
+  grid-column: 1 / -1;
+}
+
+.section-score-row label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.section-score-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.section-score-summary span {
+  min-height: 22px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: var(--surface-2);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .study-tree-view,
 .study-tree-node {
   display: grid;
