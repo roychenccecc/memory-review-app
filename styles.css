@@ -1045,8 +1045,9 @@ dialog::backdrop {
 .section-score-controls {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
+  margin-left: 18px;
 }
 
 .section-score-controls label {
@@ -1057,11 +1058,17 @@ dialog::backdrop {
   color: var(--muted);
   font-size: 12px;
   font-weight: 800;
+  white-space: nowrap;
 }
 
 .section-score-controls select {
   min-height: 30px;
   padding: 4px 28px 4px 8px;
+}
+
+.section-score-controls .muted {
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .section-score-row label {
