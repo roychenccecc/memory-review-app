@@ -788,6 +788,13 @@ textarea {
   font-size: 13px;
 }
 
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0 4px;
+}
+
 .badge,
 .tag-pill {
   display: inline-flex;
