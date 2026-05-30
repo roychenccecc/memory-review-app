@@ -137,6 +137,9 @@ function bindEvents() {
   document.getElementById("tagForm").addEventListener("submit", saveTag);
   document.getElementById("settingsForm").addEventListener("submit", saveSettings);
   document.getElementById("reviewForm").addEventListener("submit", saveReview);
+  document.getElementById("studyRecordForm").addEventListener("submit", saveStudyRecord);
+  document.getElementById("studyRecordPercentRange").addEventListener("input", syncStudyRecordRecallFromRange);
+  document.getElementById("studyRecordPercentInput").addEventListener("input", syncStudyRecordRecallFromInput);
   document.getElementById("mistakeRecordForm").addEventListener("submit", saveMistakeRecord);
   document.getElementById("mistakeRecordPercentRange").addEventListener("input", syncMistakeRecordRecallFromRange);
   document.getElementById("mistakeRecordPercentInput").addEventListener("input", syncMistakeRecordRecallFromInput);
@@ -311,6 +314,7 @@ function renderReviewedTaskCard(task) {
       </div>
       <div class="card-actions">
         <button class="small-button" onclick="openEditItem('${task.sourceType}','${task.sourceId}')">编辑内容</button>
+        ${task.sourceType === "study" ? `<button class="small-button" onclick="openStudyRecord('${task.sourceId}')">学习记录</button>` : ""}
         <button class="small-button" onclick="openEditReview('${task.id}')">修改记录</button>
       </div>
     </article>
@@ -342,7 +346,7 @@ function renderTaskCard(task) {
       </div>
       <div class="card-actions">
         <button class="small-button" onclick="openEditItem('${task.sourceType}','${task.sourceId}')">编辑内容</button>
-        <button class="small-button" onclick="${task.sourceType === "mistake" ? `openMistakeRecord('${task.sourceId}','${task.id || ""}')` : `openReview('${task.sourceType}','${task.sourceId}','${task.id || ""}')`}">${task.sourceType === "mistake" ? "错题记录" : "记录结果"}</button>
+        <button class="small-button" onclick="${task.sourceType === "mistake" ? `openMistakeRecord('${task.sourceId}','${task.id || ""}')` : `openStudyRecord('${task.sourceId}','${task.id || ""}')`}">${task.sourceType === "mistake" ? "错题记录" : "学习记录"}</button>
         <button class="small-button" onclick="postponeTask('${task.id || ""}', '${task.sourceType}', '${task.sourceId}')">延后1天</button>
       </div>
     </article>
@@ -425,7 +429,7 @@ function renderStudyMiniCard(item) {
       </div>
       <div class="card-actions">
         <button class="small-button" onclick="openEditItem('study','${item.id}')">编辑</button>
-        <button class="small-button" onclick="openReview('study','${item.id}','')">记录复习</button>
+        <button class="small-button" onclick="openStudyRecord('${item.id}')">学习记录</button>
       </div>
     </article>
   `;
@@ -468,7 +472,7 @@ function renderItemCard(type, item) {
       ${type === "mistake" && item.image ? `<img class="mistake-image" src="${item.image}" alt="错题图片" />` : ""}
       <div class="card-actions">
         <button class="small-button" onclick="openEditItem('${type}','${item.id}')">编辑</button>
-        ${type === "mistake" ? `<button class="small-button" onclick="openMistakeRecord('${item.id}')">错题记录</button>` : `<button class="small-button" onclick="openReview('${type}','${item.id}','')">记录复习</button>`}
+        ${type === "mistake" ? `<button class="small-button" onclick="openMistakeRecord('${item.id}')">错题记录</button>` : `<button class="small-button" onclick="openStudyRecord('${item.id}')">学习记录</button>`}
         <button class="small-button danger" onclick="deleteItem('${type}','${item.id}')">删除</button>
       </div>
     </article>
@@ -628,6 +632,55 @@ function renderHistory() {
       `;
     }).join("")
     : empty("还没有复习记录。");
+}
+
+function openStudyRecord(studyId, taskId = "") {
+  const study = state.study.find((item) => item.id === studyId);
+  if (!study) {
+    toast("没有找到这条学习记录。");
+    return;
+  }
+  document.getElementById("studyRecordTitle").textContent = `学习记录：${study.title || "未命名学习"}`;
+  const form = document.getElementById("studyRecordForm");
+  form.reset();
+  formField(form, "sourceType").value = "study";
+  formField(form, "sourceId").value = study.id;
+  formField(form, "taskId").value = taskId || "";
+  formField(form, "logId").value = "";
+  setStudyRecordRecallPercent(80);
+  document.getElementById("studyRecordHistoryList").innerHTML = renderStudyHistoryList(study);
+  openModal("studyRecordModal");
+}
+
+function renderStudyHistoryList(study) {
+  const logs = state.logs
+    .filter((log) => log.sourceType === "study" && log.sourceId === study.id)
+    .sort((a, b) => (b.createdAt || b.date || "").localeCompare(a.createdAt || a.date || ""));
+  const initialRecord = `
+    <article class="history-card compact-history-card">
+      <div class="meta">
+        <span>初次记录</span>
+        <span>${formatDate(study.date || study.createdAt?.slice(0, 10))}</span>
+        <span>${studyKindLabel(study)}</span>
+      </div>
+      <p class="body-text">${escapeHtml(study.notes || "没有备注。")}</p>
+    </article>
+  `;
+  const logRows = logs.map((log, index) => `
+    <article class="history-card compact-history-card">
+      <div class="meta">
+        <span>第 ${logs.length - index} 次复习</span>
+        <span>${formatDate(log.date)}</span>
+        <span>记住 ${Number(log.recallPercent ?? log.afterScore ?? 0)}%</span>
+        <span>分数 ${Number(log.beforeScore ?? 0)} → ${Number(log.afterScore ?? 0)}</span>
+      </div>
+      ${log.notes ? `<p class="body-text">${escapeHtml(log.notes)}</p>` : '<p class="body-text muted">没有填写本次备注。</p>'}
+      <div class="card-actions">
+        <button class="small-button" onclick="openEditReview('${log.id}')">修改记录</button>
+      </div>
+    </article>
+  `).join("");
+  return `${logRows}${initialRecord}`;
 }
 
 function openMistakeRecord(mistakeId, taskId = "") {
@@ -1195,6 +1248,20 @@ async function saveReview(event) {
   form.reset();
   form.closest("dialog").close();
   toast(saved.updated ? "复习记录已修改。" : `已记录为“记住 ${saved.recallPercent}%”，下一次复习已更新。`);
+  render();
+}
+
+async function saveStudyRecord(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const saved = await persistReviewForm(form);
+  if (!saved) return;
+  formField(form, "logId").value = "";
+  formField(form, "notes").value = "";
+  setStudyRecordRecallPercent(80);
+  const study = findItem("study", saved.sourceId);
+  if (study) document.getElementById("studyRecordHistoryList").innerHTML = renderStudyHistoryList(study);
+  toast(saved.updated ? "学习记录已修改。" : `已保存学习记录，记住 ${saved.recallPercent}%。`);
   render();
 }
 
@@ -1810,6 +1877,8 @@ function openEditReview(logId) {
   if (!item) return;
   const historyModal = document.getElementById("mistakeHistoryModal");
   if (historyModal?.open) historyModal.close();
+  const studyRecordModal = document.getElementById("studyRecordModal");
+  if (studyRecordModal?.open) studyRecordModal.close();
   const title = log.sourceType === "study" ? item.title : item.location || firstLine(item.question) || "未命名错题";
   document.getElementById("reviewModalTitle").textContent = `${log.sourceType === "mistake" ? "修改错因记录" : "修改复习记录"}：${title}`;
   configureReviewModalForType(log.sourceType);
@@ -1835,6 +1904,20 @@ function setRecallPercent(value) {
   const percent = clamp(Number(value) || 0, 0, 100);
   document.getElementById("recallPercentRange").value = percent;
   document.getElementById("recallPercentInput").value = percent;
+}
+
+function syncStudyRecordRecallFromRange(event) {
+  setStudyRecordRecallPercent(event.currentTarget.value);
+}
+
+function syncStudyRecordRecallFromInput(event) {
+  setStudyRecordRecallPercent(event.currentTarget.value);
+}
+
+function setStudyRecordRecallPercent(value) {
+  const percent = clamp(Number(value) || 0, 0, 100);
+  document.getElementById("studyRecordPercentRange").value = percent;
+  document.getElementById("studyRecordPercentInput").value = percent;
 }
 
 function syncMistakeRecordRecallFromRange(event) {
@@ -2444,3 +2527,4 @@ window.cycleImportance = cycleImportance;
 window.toggleTagNode = toggleTagNode;
 window.jumpToTagMistakes = jumpToTagMistakes;
 window.openMistakeRecord = openMistakeRecord;
+window.openStudyRecord = openStudyRecord;
