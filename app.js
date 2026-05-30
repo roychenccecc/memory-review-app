@@ -12,7 +12,7 @@ const MAX_MISTAKE_PENALTY = 18;
 const RESULT_LABEL = { remembered: "熟记", unclear: "模糊", forgotten: "完全忘了" };
 const TYPE_LABEL = { study: "学习", mistake: "错题" };
 const STUDY_KIND_LABEL = { new: "新学", review: "复习" };
-const QUESTION_TYPES = ["选择题", "填空题", "判断题", "简答题", "论述题", "计算题", "案例题", "综合题"];
+const DEFAULT_QUESTION_TYPES = ["选择题", "简答题", "综合题", "计算题"];
 
 let db;
 let pastedMistakeImage = "";
@@ -26,6 +26,7 @@ let state = {
     examDate: "",
     cramWindow: 14,
     dailyCramLimit: 20,
+    questionTypes: DEFAULT_QUESTION_TYPES,
   },
   tags: [],
   study: [],
@@ -108,7 +109,11 @@ async function loadState() {
     all("tasks"),
   ]);
 
-  state.settings = settings[0] || state.settings;
+  state.settings = {
+    ...state.settings,
+    ...(settings[0] || {}),
+    questionTypes: normalizeQuestionTypes(settings[0]?.questionTypes),
+  };
   state.tags = tags.sort(byCreated);
   state.study = study.sort(byDateDesc);
   state.mistakes = mistakes.sort(byDateDesc);
@@ -144,6 +149,7 @@ function bindEvents() {
   document.getElementById("studySectionScores").addEventListener("input", syncStudySectionScore);
   document.getElementById("mistakeRecordForm").addEventListener("submit", saveMistakeRecord);
   document.getElementById("questionTypeForm").addEventListener("submit", saveQuestionTypes);
+  document.getElementById("addQuestionTypeBtn").addEventListener("click", addQuestionType);
   document.getElementById("mistakeRecordPercentRange").addEventListener("input", syncMistakeRecordRecallFromRange);
   document.getElementById("mistakeRecordPercentInput").addEventListener("input", syncMistakeRecordRecallFromInput);
   document.getElementById("reviewFilter").addEventListener("change", renderDashboard);
@@ -2184,13 +2190,26 @@ function openQuestionTypes(tagId) {
   form.reset();
   formField(form, "tagId").value = tag.id;
   setText("questionTypeTitle", `考察题型：${tagPath(tag)}`);
-  document.getElementById("questionTypeOptions").innerHTML = QUESTION_TYPES.map((type) => `
+  renderQuestionTypeOptions(tag);
+  openModal("questionTypeModal");
+}
+
+function renderQuestionTypeOptions(tag) {
+  document.getElementById("questionTypeOptions").innerHTML = availableQuestionTypes().map((type) => `
     <label class="check-option">
       <input type="checkbox" name="questionTypes" value="${escapeHtml(type)}" ${(tag.questionTypes || []).includes(type) ? "checked" : ""} />
       <span>${escapeHtml(type)}</span>
+      ${DEFAULT_QUESTION_TYPES.includes(type) ? "" : `<button class="mini-danger" type="button" onclick="deleteQuestionType(decodeURIComponent('${encodeURIComponent(type)}'))">删除</button>`}
     </label>
   `).join("");
-  openModal("questionTypeModal");
+}
+
+function availableQuestionTypes() {
+  return normalizeQuestionTypes(state.settings.questionTypes);
+}
+
+function normalizeQuestionTypes(types = []) {
+  return [...new Set([...DEFAULT_QUESTION_TYPES, ...(Array.isArray(types) ? types : [])].map((type) => String(type || "").trim()).filter(Boolean))];
 }
 
 async function saveQuestionTypes(event) {
@@ -2206,6 +2225,43 @@ async function saveQuestionTypes(event) {
   form.closest("dialog").close();
   toast("考察题型已保存。");
   render();
+}
+
+async function addQuestionType() {
+  const input = document.getElementById("newQuestionTypeName");
+  const name = input.value.trim();
+  if (!name) {
+    toast("先输入题型名称。");
+    return;
+  }
+  state.settings.questionTypes = normalizeQuestionTypes([...availableQuestionTypes(), name]);
+  state.settings.updatedAt = now();
+  await put("settings", state.settings);
+  await loadState();
+  input.value = "";
+  const tag = state.tags.find((row) => row.id === document.querySelector("#questionTypeForm [name='tagId']").value);
+  if (tag) renderQuestionTypeOptions(tag);
+  toast("题型已添加。");
+}
+
+async function deleteQuestionType(type) {
+  if (DEFAULT_QUESTION_TYPES.includes(type)) {
+    toast("默认题型会保留。");
+    return;
+  }
+  state.settings.questionTypes = availableQuestionTypes().filter((item) => item !== type);
+  state.settings.updatedAt = now();
+  await put("settings", state.settings);
+  for (const tag of state.tags.filter((row) => (row.questionTypes || []).includes(type))) {
+    tag.questionTypes = tag.questionTypes.filter((item) => item !== type);
+    tag.updatedAt = now();
+    await put("tags", tag);
+  }
+  await loadState();
+  const tag = state.tags.find((row) => row.id === document.querySelector("#questionTypeForm [name='tagId']").value);
+  if (tag) renderQuestionTypeOptions(tag);
+  toast("题型已删除，并从相关知识点移除。");
+  renderTags();
 }
 
 async function addSeedData() {
@@ -2708,3 +2764,4 @@ window.jumpToTagMistakes = jumpToTagMistakes;
 window.openMistakeRecord = openMistakeRecord;
 window.openStudyRecord = openStudyRecord;
 window.openQuestionTypes = openQuestionTypes;
+window.deleteQuestionType = deleteQuestionType;
