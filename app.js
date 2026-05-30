@@ -302,8 +302,8 @@ function renderReviewedTaskCard(task) {
           <span>已复习 ${reviewCount(task.sourceType, task.sourceId)} 次</span>
           <span>记住 ${Number(task.recallPercent ?? score)}%</span>
           <span>记忆分: ${score}</span>
-          ${tags.map(renderTagPill).join("")}
         </div>
+        ${renderTagRow(tags)}
         ${task.notes ? `<p class="body-text">${escapeHtml(truncate(task.notes, 120))}</p>` : ""}
       </div>
       <div class="card-actions">
@@ -333,8 +333,8 @@ function renderTaskCard(task) {
           <span>已复习 ${reviewCount(task.sourceType, task.sourceId)} 次</span>
           <span>记忆分: ${score}</span>
           ${task.isCram ? '<span class="badge cram">考前重点</span>' : ""}
-          ${tags.map(renderTagPill).join("")}
         </div>
+        ${renderTagRow(tags)}
         ${detail ? `<p class="body-text">${escapeHtml(truncate(detail, 160))}</p>` : ""}
       </div>
       <div class="card-actions">
@@ -458,8 +458,8 @@ function renderItemCard(type, item) {
         <span>已复习 ${reviewCount(type, item.id)} 次</span>
         <span>记忆分: ${score}</span>
         <span>下次: ${formatDate(nextTaskDate(type, item.id))}</span>
-        ${tags.map(renderTagPill).join("")}
       </div>
+      ${renderTagRow(tags)}
       <h4 class="card-title">${escapeHtml(title)}</h4>
       ${body ? `<p class="body-text">${escapeHtml(body)}</p>` : ""}
       ${type === "mistake" && item.image ? `<img class="mistake-image" src="${item.image}" alt="错题图片" />` : ""}
@@ -2131,6 +2131,10 @@ function removeTagValueFromOpenForms(tagName) {
 
 function renderTagPill(tag) {
   return `<span class="tag-pill" style="border-left: 5px solid ${escapeHtml(tag.color || "#64748b")}">${escapeHtml(tagPath(tag))}</span>`;
+}
+
+function renderTagRow(tags = []) {
+  return tags.length ? `<div class="tag-row">${tags.map(renderTagPill).join("")}</div>` : "";
 }
 
 function importanceLabel(value) {
