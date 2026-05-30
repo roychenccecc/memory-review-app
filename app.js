@@ -670,9 +670,17 @@ function renderStudySectionScoreInputs(study) {
       const weight = tagImportanceScoreWeight(tag);
       return `
         <div class="section-score-row" data-tag-id="${tag.id}" data-weight="${weight}">
-          <div>
+          <div class="section-score-main">
             ${renderTagPill(tag)}
-            <span class="muted">${importanceLabel(tag.importance)} · 权重 ${weight}</span>
+            <div class="section-score-controls">
+              <label>
+                重要性
+                <select class="section-importance-select">
+                  ${importanceOptions(tag.importance)}
+                </select>
+              </label>
+              <span class="muted">权重 ${weight}</span>
+            </div>
           </div>
           <label>
             <input class="section-score-number" type="number" min="0" max="100" step="1" value="${safeScore}" />
@@ -704,6 +712,12 @@ function latestStudySectionScore(studyId, tagId) {
 
 function tagImportanceScoreWeight(tag) {
   return TAG_SCORE_WEIGHT[tag?.importance] || TAG_SCORE_WEIGHT.medium;
+}
+
+function importanceOptions(selected = "medium") {
+  return ["veryHigh", "high", "medium", "low"]
+    .map((value) => `<option value="${value}" ${value === selected ? "selected" : ""}>${importanceLabel(value)}</option>`)
+    .join("");
 }
 
 function renderStudyHistoryList(study) {
@@ -2010,13 +2024,32 @@ function setStudyRecordRecallPercent(value) {
   document.getElementById("studyRecordPercentInput").value = percent;
 }
 
-function syncStudySectionScore(event) {
+async function syncStudySectionScore(event) {
   const row = event.target.closest(".section-score-row");
   if (!row) return;
+  if (event.target.classList.contains("section-importance-select")) {
+    await updateSectionImportance(row, event.target.value);
+    return;
+  }
   const percent = clamp(Number(event.target.value) || 0, 0, 100);
   row.querySelector(".section-score-number").value = percent;
   row.querySelector(".section-score-range").value = percent;
   updateStudyRecordAggregateFromSections();
+}
+
+async function updateSectionImportance(row, importance) {
+  const tag = state.tags.find((item) => item.id === row.dataset.tagId);
+  if (!tag) return;
+  tag.importance = importance;
+  tag.updatedAt = now();
+  await put("tags", tag);
+  const weight = tagImportanceScoreWeight(tag);
+  row.dataset.weight = String(weight);
+  row.querySelector(".muted").textContent = `权重 ${weight}`;
+  await loadState();
+  updateStudyRecordAggregateFromSections();
+  render();
+  toast("小节重要性已同步更新。");
 }
 
 function updateStudyRecordAggregateFromSections() {
