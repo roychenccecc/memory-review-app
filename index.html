@@ -459,6 +459,45 @@
       </form>
     </dialog>
 
+    <dialog id="studyRecordModal">
+      <div class="modal-card">
+        <div class="modal-head">
+          <h3 id="studyRecordTitle">学习记录</h3>
+          <button class="icon-button" data-close-modal type="button">×</button>
+        </div>
+        <section class="modal-section">
+          <h4>本次记录</h4>
+          <form id="studyRecordForm">
+            <input name="sourceType" type="hidden" value="study" />
+            <input name="sourceId" type="hidden" />
+            <input name="taskId" type="hidden" />
+            <input name="logId" type="hidden" />
+            <div class="recall-control">
+              <div class="recall-head">
+                <strong>这次记住了多少？</strong>
+                <label>
+                  <input id="studyRecordPercentInput" name="recallPercent" type="number" min="0" max="100" step="1" value="80" />
+                  %
+                </label>
+              </div>
+              <input id="studyRecordPercentRange" type="range" min="0" max="100" step="1" value="80" />
+            </div>
+            <label>
+              本次复习备注
+              <textarea name="notes" rows="3" placeholder="这次卡在哪里、下次重点看什么"></textarea>
+            </label>
+            <div class="modal-actions">
+              <button class="primary" type="submit">保存本次记录</button>
+            </div>
+          </form>
+        </section>
+        <section class="modal-section">
+          <h4>历史记录</h4>
+          <div class="history-list modal-history-list" id="studyRecordHistoryList"></div>
+        </section>
+      </div>
+    </dialog>
+
     <dialog id="mistakeHistoryModal">
       <div class="modal-card">
         <div class="modal-head">
@@ -500,6 +539,6 @@
 
     <datalist id="tagOptions"></datalist>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="app.js?v=20260530-item-tag-row"></script>
+    <script src="app.js?v=20260530-study-record-combined"></script>
   </body>
 </html>
