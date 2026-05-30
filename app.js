@@ -140,6 +140,7 @@ function bindEvents() {
   document.getElementById("studyRecordForm").addEventListener("submit", saveStudyRecord);
   document.getElementById("studyRecordPercentRange").addEventListener("input", syncStudyRecordRecallFromRange);
   document.getElementById("studyRecordPercentInput").addEventListener("input", syncStudyRecordRecallFromInput);
+  document.getElementById("studySectionScores").addEventListener("input", syncStudySectionScore);
   document.getElementById("mistakeRecordForm").addEventListener("submit", saveMistakeRecord);
   document.getElementById("mistakeRecordPercentRange").addEventListener("input", syncMistakeRecordRecallFromRange);
   document.getElementById("mistakeRecordPercentInput").addEventListener("input", syncMistakeRecordRecallFromInput);
@@ -648,8 +649,61 @@ function openStudyRecord(studyId, taskId = "") {
   formField(form, "taskId").value = taskId || "";
   formField(form, "logId").value = "";
   setStudyRecordRecallPercent(80);
+  document.getElementById("studySectionScores").innerHTML = renderStudySectionScoreInputs(study);
+  updateStudyRecordAggregateFromSections();
   document.getElementById("studyRecordHistoryList").innerHTML = renderStudyHistoryList(study);
   openModal("studyRecordModal");
+}
+
+function renderStudySectionScoreInputs(study) {
+  const sections = studySectionTags(study);
+  setText("studyRecordRecallLabel", sections.length ? "章节加权记忆分" : "这次记住了多少？");
+  if (!sections.length) return "";
+  return `
+    <div class="section-score-head">
+      <strong>分小节记录</strong>
+      <span>按知识点重要性加权</span>
+    </div>
+    ${sections.map((tag) => {
+      const score = latestStudySectionScore(study.id, tag.id) ?? currentScore(study);
+      const safeScore = clamp(Number(score) || 0, 0, 100);
+      const weight = tagImportanceScoreWeight(tag);
+      return `
+        <div class="section-score-row" data-tag-id="${tag.id}" data-weight="${weight}">
+          <div>
+            ${renderTagPill(tag)}
+            <span class="muted">${importanceLabel(tag.importance)} · 权重 ${weight}</span>
+          </div>
+          <label>
+            <input class="section-score-number" type="number" min="0" max="100" step="1" value="${safeScore}" />
+            %
+          </label>
+          <input class="section-score-range" type="range" min="0" max="100" step="1" value="${safeScore}" />
+        </div>
+      `;
+    }).join("")}
+  `;
+}
+
+function studySectionTags(study) {
+  return tagsFor(study.tagIds).filter(isTreeKnowledgeTag);
+}
+
+function isTreeKnowledgeTag(tag) {
+  return Boolean(tag?.parentId) || state.tags.some((child) => child.parentId === tag?.id);
+}
+
+function latestStudySectionScore(studyId, tagId) {
+  const log = state.logs
+    .filter((row) => row.sourceType === "study" && row.sourceId === studyId && Array.isArray(row.sectionScores))
+    .sort((a, b) => (b.createdAt || b.date || "").localeCompare(a.createdAt || a.date || ""))
+    .find((row) => row.sectionScores.some((section) => section.tagId === tagId));
+  const section = log?.sectionScores.find((row) => row.tagId === tagId);
+  return section ? Number(section.score) : null;
+}
+
+function tagImportanceScoreWeight(tag) {
+  return TAG_SCORE_WEIGHT[tag?.importance] || TAG_SCORE_WEIGHT.medium;
 }
 
 function renderStudyHistoryList(study) {
@@ -675,12 +729,26 @@ function renderStudyHistoryList(study) {
         <span>分数 ${Number(log.beforeScore ?? 0)} → ${Number(log.afterScore ?? 0)}</span>
       </div>
       ${log.notes ? `<p class="body-text">${escapeHtml(log.notes)}</p>` : '<p class="body-text muted">没有填写本次备注。</p>'}
+      ${renderSectionScoreSummary(log.sectionScores)}
       <div class="card-actions">
         <button class="small-button" onclick="openEditReview('${log.id}')">修改记录</button>
       </div>
     </article>
   `).join("");
   return `${logRows}${initialRecord}`;
+}
+
+function renderSectionScoreSummary(sectionScores = []) {
+  if (!Array.isArray(sectionScores) || !sectionScores.length) return "";
+  return `
+    <div class="section-score-summary">
+      ${sectionScores.map((section) => {
+        const tag = state.tags.find((row) => row.id === section.tagId);
+        const label = tag ? tagPath(tag) : "已删除知识点";
+        return `<span>${escapeHtml(label)}：${Number(section.score)}%</span>`;
+      }).join("")}
+    </div>
+  `;
 }
 
 function openMistakeRecord(mistakeId, taskId = "") {
@@ -1285,13 +1353,16 @@ async function persistReviewForm(form) {
   const sourceId = data.get("sourceId");
   const taskId = data.get("taskId");
   const logId = data.get("logId");
-  const recallPercent = clamp(Number(data.get("recallPercent") || 0), 0, 100);
+  const sectionScores = collectStudySectionScores(form, sourceType);
+  const recallPercent = sectionScores.length
+    ? weightedSectionScore(sectionScores)
+    : clamp(Number(data.get("recallPercent") || 0), 0, 100);
   const result = resultFromPercent(recallPercent);
   const item = findItem(sourceType, sourceId);
   if (!item) return null;
 
   if (logId) {
-    await updateReviewLog({ logId, sourceType, sourceId, taskId, recallPercent, result, notes: data.get("notes").trim() });
+    await updateReviewLog({ logId, sourceType, sourceId, taskId, recallPercent, result, notes: data.get("notes").trim(), sectionScores });
     return { updated: true, sourceType, sourceId, recallPercent };
   }
 
@@ -1302,6 +1373,7 @@ async function persistReviewForm(form) {
   const afterScore = memoryScoreFromReview(sourceType, sourceId, {
     id: newLogId,
     recallPercent,
+    sectionScores,
     createdAt: logCreatedAt,
     date: logDate,
   });
@@ -1357,6 +1429,7 @@ async function persistReviewForm(form) {
     taskId,
     result,
     recallPercent,
+    sectionScores,
     notes: data.get("notes").trim(),
     beforeScore,
     afterScore,
@@ -1368,6 +1441,23 @@ async function persistReviewForm(form) {
   await createNextTask(sourceType, item, toDateInput(new Date()), result);
   await loadState();
   return { updated: false, sourceType, sourceId, recallPercent };
+}
+
+function collectStudySectionScores(form, sourceType) {
+  if (sourceType !== "study" || form.id !== "studyRecordForm") return [];
+  return [...document.querySelectorAll("#studySectionScores .section-score-row")]
+    .map((row) => ({
+      tagId: row.dataset.tagId,
+      score: clamp(Number(row.querySelector(".section-score-number")?.value || 0), 0, 100),
+      weight: Number(row.dataset.weight) || TAG_SCORE_WEIGHT.medium,
+    }))
+    .filter((section) => section.tagId);
+}
+
+function weightedSectionScore(sectionScores = []) {
+  const totalWeight = sectionScores.reduce((sum, section) => sum + (Number(section.weight) || 0), 0);
+  if (!totalWeight) return 0;
+  return Math.round(sectionScores.reduce((sum, section) => sum + Number(section.score) * Number(section.weight), 0) / totalWeight);
 }
 
 async function updateReviewLog({ logId, sourceType, sourceId, taskId, recallPercent, result, notes }) {
@@ -1918,6 +2008,21 @@ function setStudyRecordRecallPercent(value) {
   const percent = clamp(Number(value) || 0, 0, 100);
   document.getElementById("studyRecordPercentRange").value = percent;
   document.getElementById("studyRecordPercentInput").value = percent;
+}
+
+function syncStudySectionScore(event) {
+  const row = event.target.closest(".section-score-row");
+  if (!row) return;
+  const percent = clamp(Number(event.target.value) || 0, 0, 100);
+  row.querySelector(".section-score-number").value = percent;
+  row.querySelector(".section-score-range").value = percent;
+  updateStudyRecordAggregateFromSections();
+}
+
+function updateStudyRecordAggregateFromSections() {
+  const sectionScores = collectStudySectionScores(document.getElementById("studyRecordForm"), "study");
+  if (!sectionScores.length) return;
+  setStudyRecordRecallPercent(weightedSectionScore(sectionScores));
 }
 
 function syncMistakeRecordRecallFromRange(event) {
