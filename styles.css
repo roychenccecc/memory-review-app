@@ -501,6 +501,23 @@ button {
   font-size: 13px;
 }
 
+.question-type-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.question-type-row span {
+  min-height: 20px;
+  border-radius: 999px;
+  padding: 2px 7px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .mind-children {
   position: relative;
   display: flex;
@@ -897,6 +914,28 @@ dialog::backdrop {
 
 .tag-manage-modal {
   width: min(640px, calc(100vw - 28px));
+}
+
+.check-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.check-option {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #fbfcfb;
+}
+
+.check-option input {
+  width: auto;
 }
 
 .modal-head {
