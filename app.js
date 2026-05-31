@@ -1643,8 +1643,64 @@ function dailyReviewLimit() {
 
 async function refreshSchedule() {
   await loadState();
+  await migratePendingTaskEarliestDates();
+  await loadState();
   await rebalanceReviewQueue();
   await loadState();
+}
+
+async function migratePendingTaskEarliestDates() {
+  for (const task of state.tasks.filter((row) => row.status === "pending" && !row.isCram && findItem(row.sourceType, row.sourceId))) {
+    const item = findItem(task.sourceType, task.sourceId);
+    const nextIntervalState = migratedIntervalStateForTask(task, item);
+    if (!nextIntervalState) continue;
+    const earliestDate = capAtExam(addDays(nextIntervalState.fromDate, nextIntervalState.interval));
+    if (!earliestDate) continue;
+    if (item.currentIntervalIndex !== nextIntervalState.index || item.currentInterval !== nextIntervalState.interval) {
+      await put(task.sourceType === "study" ? "study" : "mistakes", {
+        ...item,
+        currentIntervalIndex: nextIntervalState.index,
+        currentInterval: nextIntervalState.interval,
+        lastRecallPercent: nextIntervalState.recallPercent,
+        updatedAt: now(),
+      });
+    }
+    if (task.earliestDate === earliestDate && task.intervalDays === nextIntervalState.interval) continue;
+    await put("tasks", {
+      ...task,
+      earliestDate,
+      scheduledDate: earliestDate,
+      intervalDays: nextIntervalState.interval,
+      priority: priorityScore(item, false),
+      updatedAt: now(),
+    });
+  }
+}
+
+function migratedIntervalStateForTask(task, item) {
+  const latest = latestLogFor(task.sourceType, task.sourceId);
+  const fromDate = latest?.date || item.lastReviewedAt;
+  if (!fromDate) return null;
+  if (task.earliestDate && task.earliestDate > addDays(fromDate, 1)) return null;
+  const recallPercent = clamp(Number(latest?.recallPercent ?? latest?.afterScore ?? item.lastRecallPercent ?? item.memoryScore ?? 70), 0, 100);
+  const historicalScore = Number(latest?.beforeScore ?? item.memoryScore ?? currentScore(item));
+  const baseIndex = legacyIntervalBaseIndex(task.sourceType, task.sourceId, item, latest);
+  const migrated = intervalStateAfterReview({ ...item, currentIntervalIndex: baseIndex, currentInterval: BASE_INTERVALS[baseIndex] || 1 }, recallPercent, historicalScore);
+  return {
+    ...migrated,
+    fromDate,
+    recallPercent,
+  };
+}
+
+function legacyIntervalBaseIndex(sourceType, sourceId, item, latest) {
+  if (Number.isFinite(Number(latest?.beforeIntervalIndex))) {
+    return clamp(Number(latest.beforeIntervalIndex), 0, BASE_INTERVALS.length - 1);
+  }
+  const currentIndex = clamp(Number(item.currentIntervalIndex ?? 0), 0, BASE_INTERVALS.length - 1);
+  const count = reviewCount(sourceType, sourceId);
+  if (!count) return currentIndex;
+  return clamp(Math.max(currentIndex, count - 1), 0, BASE_INTERVALS.length - 1);
 }
 
 async function rebalanceReviewQueue() {
