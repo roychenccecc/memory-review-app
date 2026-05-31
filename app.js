@@ -2,7 +2,6 @@ const DB_NAME = "adaptive-memory-review";
 const DB_VERSION = 1;
 const STORES = ["settings", "tags", "study", "mistakes", "logs", "tasks"];
 const BASE_INTERVALS = [1, 2, 4, 7, 15, 30];
-const IMPORTANCE_MULTIPLIER = { veryHigh: 0.55, high: 0.7, medium: 1, low: 1.3 };
 const IMPORTANCE_WEIGHT = { veryHigh: 45, high: 30, medium: 15, low: 0 };
 const TAG_SCORE_WEIGHT = { veryHigh: 5, high: 3, medium: 2, low: 1 };
 const TAG_STUDY_RATIO = 0.6;
@@ -26,6 +25,7 @@ let state = {
     examDate: "",
     cramWindow: 14,
     dailyCramLimit: 20,
+    dailyReviewLimit: 6,
     questionTypes: DEFAULT_QUESTION_TYPES,
   },
   tags: [],
@@ -112,6 +112,7 @@ async function loadState() {
   state.settings = {
     ...state.settings,
     ...(settings[0] || {}),
+    dailyReviewLimit: clamp(Number(settings[0]?.dailyReviewLimit ?? state.settings.dailyReviewLimit ?? 6), 1, 80),
     questionTypes: normalizeQuestionTypes(settings[0]?.questionTypes),
   };
   state.tags = tags.sort(byCreated);
@@ -207,6 +208,7 @@ function setDefaultDates() {
   document.querySelector("#settingsForm [name='examDate']").value = state.settings.examDate || "";
   document.querySelector("#settingsForm [name='cramWindow']").value = state.settings.cramWindow || 14;
   document.querySelector("#settingsForm [name='dailyCramLimit']").value = state.settings.dailyCramLimit || 20;
+  document.querySelector("#settingsForm [name='dailyReviewLimit']").value = state.settings.dailyReviewLimit || 6;
 }
 
 function switchView(view) {
@@ -251,7 +253,7 @@ function renderDashboard() {
   const today = toDateInput(new Date());
   const due = visibleTasks.filter((task) => task.scheduledDate <= today && task.status === "pending");
   const overdue = due.filter((task) => task.scheduledDate < today);
-  const cram = visibleTasks.filter((task) => task.isCram && task.status === "pending");
+  const cram = visibleTasks.filter((task) => task.isCram && task.status === "pending" && task.scheduledDate <= today);
   const future = visibleTasks
     .filter((task) => task.status === "pending" && task.scheduledDate > today)
     .sort(taskSort)
@@ -1045,13 +1047,14 @@ async function saveStudy(event) {
     memoryScore: existing?.memoryScore ?? 70,
     currentIntervalIndex: existing?.currentIntervalIndex ?? 0,
     currentInterval: existing?.currentInterval ?? 1,
+    lastRecallPercent: existing?.lastRecallPercent,
     lastReviewedAt: existing?.lastReviewedAt,
     createdAt: existing?.createdAt || now(),
     updatedAt: now(),
   };
   await put("study", item);
   if (!existing) await createNextTask("study", item, item.date);
-  await loadState();
+  await refreshSchedule();
   form.reset();
   setDefaultDates();
   form.closest("dialog").close();
@@ -1080,6 +1083,7 @@ async function saveMistake(event) {
     memoryScore: existing?.memoryScore ?? 60,
     currentIntervalIndex: existing?.currentIntervalIndex ?? 0,
     currentInterval: existing?.currentInterval ?? 1,
+    lastRecallPercent: existing?.lastRecallPercent,
     lastReviewedAt: existing?.lastReviewedAt,
     date: existing?.date || toDateInput(new Date()),
     createdAt: existing?.createdAt || now(),
@@ -1087,7 +1091,7 @@ async function saveMistake(event) {
   };
   await put("mistakes", item);
   if (!existing) await createNextTask("mistake", item, item.date);
-  await loadState();
+  await refreshSchedule();
   form.reset();
   clearMistakeImage();
   form.closest("dialog").close();
@@ -1326,14 +1330,16 @@ async function saveSettings(event) {
   event.preventDefault();
   const data = new FormData(event.currentTarget);
   state.settings = {
+    ...state.settings,
     id: "main",
     examDate: data.get("examDate"),
     cramWindow: Number(data.get("cramWindow")) || 14,
     dailyCramLimit: Number(data.get("dailyCramLimit")) || 20,
+    dailyReviewLimit: clamp(Number(data.get("dailyReviewLimit")) || 6, 1, 80),
     updatedAt: now(),
   };
   await put("settings", state.settings);
-  await loadState();
+  await refreshSchedule();
   toast("设置已保存。");
   render();
 }
@@ -1400,6 +1406,8 @@ async function persistReviewForm(form) {
   const logDate = toDateInput(new Date());
   const newLogId = id("log");
   const beforeScore = currentScore(item);
+  const beforeIntervalIndex = item.currentIntervalIndex || 0;
+  const beforeInterval = item.currentInterval || BASE_INTERVALS[beforeIntervalIndex] || 1;
   const afterScore = memoryScoreFromReview(sourceType, sourceId, {
     id: newLogId,
     recallPercent,
@@ -1408,28 +1416,12 @@ async function persistReviewForm(form) {
     date: logDate,
   });
   const delta = afterScore - beforeScore;
-  const previousIndex = item.currentIntervalIndex || 0;
-  let nextIndex = previousIndex;
-  let nextInterval = item.currentInterval || BASE_INTERVALS[previousIndex] || 1;
-
-  if (recallPercent >= 85) {
-    nextIndex = Math.min(previousIndex + 1, BASE_INTERVALS.length - 1);
-    nextInterval = BASE_INTERVALS[nextIndex] || 30;
-    if (previousIndex >= BASE_INTERVALS.length - 1) nextInterval = 30;
-  } else if (recallPercent >= 60) {
-    nextIndex = recallPercent >= 75 ? previousIndex : Math.max(0, previousIndex - 1);
-    nextInterval = Math.max(1, Math.ceil((item.currentInterval || BASE_INTERVALS[previousIndex] || 1) * (recallPercent / 100)));
-  } else if (recallPercent >= 40) {
-    nextInterval = Math.max(1, Math.ceil((item.currentInterval || BASE_INTERVALS[previousIndex] || 1) / 2));
-    nextIndex = Math.max(0, previousIndex - 1);
-  } else {
-    nextIndex = 0;
-    nextInterval = 1;
-  }
+  const nextIntervalState = intervalStateAfterReview(item, recallPercent, beforeScore);
 
   item.memoryScore = afterScore;
-  item.currentIntervalIndex = nextIndex;
-  item.currentInterval = nextInterval;
+  item.currentIntervalIndex = nextIntervalState.index;
+  item.currentInterval = nextIntervalState.interval;
+  item.lastRecallPercent = recallPercent;
   item.lastReviewedAt = toDateInput(new Date());
   item.updatedAt = now();
 
@@ -1464,12 +1456,16 @@ async function persistReviewForm(form) {
     beforeScore,
     afterScore,
     delta,
+    beforeIntervalIndex,
+    beforeInterval,
+    afterIntervalIndex: nextIntervalState.index,
+    afterInterval: nextIntervalState.interval,
     date: logDate,
     createdAt: logCreatedAt,
   });
 
   await createNextTask(sourceType, item, toDateInput(new Date()), result);
-  await loadState();
+  await refreshSchedule();
   return { updated: false, sourceType, sourceId, recallPercent };
 }
 
@@ -1490,7 +1486,7 @@ function weightedSectionScore(sectionScores = []) {
   return Math.round(sectionScores.reduce((sum, section) => sum + Number(section.score) * Number(section.weight), 0) / totalWeight);
 }
 
-async function updateReviewLog({ logId, sourceType, sourceId, taskId, recallPercent, result, notes }) {
+async function updateReviewLog({ logId, sourceType, sourceId, taskId, recallPercent, result, notes, sectionScores = [] }) {
   const log = state.logs.find((row) => row.id === logId);
   const item = findItem(sourceType, sourceId);
   if (!log || !item) return;
@@ -1500,17 +1496,35 @@ async function updateReviewLog({ logId, sourceType, sourceId, taskId, recallPerc
     recallPercent,
     result,
     notes,
+    sectionScores: sectionScores.length ? sectionScores : log.sectionScores,
   });
+  const isLatestLog = latestLogFor(sourceType, sourceId)?.id === log.id;
+  const intervalBase = {
+    ...item,
+    currentIntervalIndex: log.beforeIntervalIndex ?? item.currentIntervalIndex,
+    currentInterval: log.beforeInterval ?? item.currentInterval,
+  };
+  const intervalState = isLatestLog ? intervalStateAfterReview(intervalBase, recallPercent, beforeScore) : null;
   item.memoryScore = afterScore;
+  if (intervalState) {
+    item.currentIntervalIndex = intervalState.index;
+    item.currentInterval = intervalState.interval;
+    item.lastRecallPercent = recallPercent;
+  }
   item.updatedAt = now();
   if (log.date === toDateInput(new Date())) item.lastReviewedAt = log.date;
   await put(sourceType === "study" ? "study" : "mistakes", item);
 
   log.result = result;
   log.recallPercent = recallPercent;
+  if (sectionScores.length) log.sectionScores = sectionScores;
   log.notes = notes;
   log.afterScore = afterScore;
   log.delta = afterScore - beforeScore;
+  if (intervalState) {
+    log.afterIntervalIndex = intervalState.index;
+    log.afterInterval = intervalState.interval;
+  }
   log.updatedAt = now();
   await put("logs", log);
 
@@ -1527,27 +1541,33 @@ async function updateReviewLog({ logId, sourceType, sourceId, taskId, recallPerc
 
   for (const task of state.tasks.filter((row) => row.status === "pending" && row.sourceType === sourceType && row.sourceId === sourceId)) {
     task.priority = priorityScore(item, Boolean(task.isCram));
+    if (intervalState && log.date === toDateInput(new Date())) {
+      task.earliestDate = capAtExam(addDays(log.date, intervalState.interval)) || task.earliestDate || task.scheduledDate;
+      task.scheduledDate = task.earliestDate || task.scheduledDate;
+      task.intervalDays = intervalState.interval;
+    }
     task.updatedAt = now();
     await put("tasks", task);
   }
-  await loadState();
+  await refreshSchedule();
 }
 
 async function createNextTask(sourceType, item, fromDate, result = "") {
   if (state.settings.examDate && fromDate >= state.settings.examDate) return;
-  const adjusted = adjustedInterval(item, item.currentInterval || 1);
-  const scheduledDate = capAtExam(addDays(fromDate, adjusted));
-  if (!scheduledDate) return;
+  const interval = Math.max(1, Number(item.currentInterval || 1));
+  const earliestDate = capAtExam(addDays(fromDate, interval));
+  if (!earliestDate) return;
   const priority = priorityScore(item, false);
   await put("tasks", {
     id: id("task"),
     sourceType,
     sourceId: item.id,
-    scheduledDate,
+    earliestDate,
+    scheduledDate: earliestDate,
     status: "pending",
     priority,
     isCram: false,
-    intervalDays: adjusted,
+    intervalDays: interval,
     createdByResult: result,
     createdAt: now(),
   });
@@ -1556,17 +1576,98 @@ async function createNextTask(sourceType, item, fromDate, result = "") {
 function buildDisplayTasks() {
   const pending = state.tasks
     .filter((task) => task.status === "pending" && findItem(task.sourceType, task.sourceId))
-    .map((task) => ({ ...task }));
+    .map((task) => {
+      const item = findItem(task.sourceType, task.sourceId);
+      return {
+        ...task,
+        earliestDate: task.earliestDate || task.scheduledDate,
+        priority: priorityScore(item, Boolean(task.isCram)),
+      };
+    });
   for (const cramTask of buildCramTasks()) {
     const existing = pending.find((task) => task.sourceType === cramTask.sourceType && task.sourceId === cramTask.sourceId);
     if (existing) {
       existing.isCram = true;
       existing.priority = Math.max(existing.priority || 0, cramTask.priority || 0);
+      existing.earliestDate = minDate(existing.earliestDate || existing.scheduledDate, cramTask.earliestDate || cramTask.scheduledDate);
     } else {
       pending.push(cramTask);
     }
   }
-  return pending;
+  return applyDailyCapacity(pending);
+}
+
+function applyDailyCapacity(tasks) {
+  const today = toDateInput(new Date());
+  const limit = dailyReviewLimit();
+  const counts = new Map();
+  return tasks
+    .map((task) => ({
+      ...task,
+      earliestDate: task.earliestDate || task.scheduledDate || today,
+    }))
+    .filter((task) => !state.settings.examDate || task.earliestDate <= state.settings.examDate)
+    .sort(taskQueueSort)
+    .map((task) => {
+      let scheduledDate = maxDate(task.earliestDate, today);
+      while ((counts.get(scheduledDate) || 0) >= limit) {
+        scheduledDate = addDays(scheduledDate, 1);
+        if (state.settings.examDate && scheduledDate > state.settings.examDate) break;
+      }
+      if (state.settings.examDate && scheduledDate > state.settings.examDate) {
+        return { ...task, scheduledDate: "" };
+      }
+      counts.set(scheduledDate, (counts.get(scheduledDate) || 0) + 1);
+      return { ...task, scheduledDate };
+    })
+    .filter((task) => task.scheduledDate);
+}
+
+function taskQueueSort(a, b) {
+  const today = toDateInput(new Date());
+  const aEarliest = a.earliestDate || a.scheduledDate || today;
+  const bEarliest = b.earliestDate || b.scheduledDate || today;
+  const aDue = aEarliest <= today;
+  const bDue = bEarliest <= today;
+  if (aDue && bDue && (a.priority || 0) !== (b.priority || 0)) return (b.priority || 0) - (a.priority || 0);
+  if (aDue !== bDue) return aDue ? -1 : 1;
+  if (aEarliest !== bEarliest) return aEarliest.localeCompare(bEarliest);
+  return (b.priority || 0) - (a.priority || 0);
+}
+
+function dailyReviewLimit() {
+  return clamp(Number(state.settings.dailyReviewLimit) || 6, 1, 80);
+}
+
+async function refreshSchedule() {
+  await loadState();
+  await rebalanceReviewQueue();
+  await loadState();
+}
+
+async function rebalanceReviewQueue() {
+  const queued = applyDailyCapacity(state.tasks
+    .filter((task) => task.status === "pending" && !task.isCram && findItem(task.sourceType, task.sourceId))
+    .map((task) => {
+      const item = findItem(task.sourceType, task.sourceId);
+      return {
+        ...task,
+        earliestDate: task.earliestDate || task.scheduledDate,
+        priority: priorityScore(item, false),
+      };
+    }));
+  for (const task of queued) {
+    const original = state.tasks.find((row) => row.id === task.id);
+    if (!original) continue;
+    if (original.scheduledDate === task.scheduledDate && original.earliestDate === task.earliestDate && original.priority === task.priority) continue;
+    await put("tasks", {
+      ...original,
+      earliestDate: task.earliestDate,
+      scheduledDate: task.scheduledDate,
+      priority: task.priority,
+      updatedAt: now(),
+    });
+  }
 }
 
 function buildReviewedTodayTasks() {
@@ -1584,7 +1685,7 @@ function buildReviewedTodayTasks() {
 }
 
 function buildCramTasks() {
-  const { examDate, cramWindow, dailyCramLimit } = state.settings;
+  const { examDate, cramWindow } = state.settings;
   if (!examDate) return [];
   const today = toDateInput(new Date());
   const daysLeft = diffDays(today, examDate);
@@ -1596,13 +1697,14 @@ function buildCramTasks() {
       id: `cram-${item.type}-${item.id}`,
       sourceType: item.type,
       sourceId: item.id,
+      earliestDate: today,
       scheduledDate: today,
       status: "pending",
       priority: priorityScore(item, true),
       isCram: true,
     }))
     .sort((a, b) => b.priority - a.priority)
-    .slice(0, Number(dailyCramLimit) || 20);
+    .slice(0, Number(state.settings.dailyCramLimit) || 20);
 }
 
 function wasReviewedToday(item) {
@@ -1627,9 +1729,24 @@ function shouldCram(item) {
   return score >= 80 && daysSinceReview > 30;
 }
 
-function adjustedInterval(item, interval) {
-  const multiplier = IMPORTANCE_MULTIPLIER[itemImportance(item)] || 1;
-  return Math.max(1, Math.round(interval * multiplier));
+function intervalStateAfterReview(item, recallPercent, historicalScore) {
+  const previousIndex = clamp(Number(item.currentIntervalIndex ?? 0), 0, BASE_INTERVALS.length - 1);
+  let nextIndex = previousIndex;
+
+  if (recallPercent >= 70) {
+    nextIndex = Math.min(previousIndex + 1, BASE_INTERVALS.length - 1);
+  } else if (recallPercent >= 50) {
+    nextIndex = historicalScore < 60 ? Math.max(0, previousIndex - 1) : previousIndex;
+  } else if (recallPercent >= 30) {
+    nextIndex = Math.max(0, previousIndex - 2);
+  } else {
+    nextIndex = 0;
+  }
+
+  return {
+    index: nextIndex,
+    interval: BASE_INTERVALS[nextIndex] || 1,
+  };
 }
 
 function currentScore(item) {
@@ -1641,7 +1758,12 @@ function currentScore(item) {
 
 function priorityScore(item, cram) {
   const recencyPenalty = Math.max(0, 12 - diffDays(item.lastReviewedAt || item.date || item.createdAt.slice(0, 10), toDateInput(new Date())));
-  return (100 - currentScore(item)) + IMPORTANCE_WEIGHT[itemImportance(item)] + knowledgeWeaknessBonus(item) + (cram ? 20 : 0) - recencyPenalty;
+  const score = currentScore(item);
+  const recall = latestRecallPercent(item);
+  const stableBonus = score >= 80 && recall >= 85 ? -18 : 0;
+  const weakGuard = score < 60 ? 12 : score < 80 ? 6 : 0;
+  const mistakeGuard = isMistakeItem(item) && recall < 80 ? 10 : 0;
+  return (100 - score) + IMPORTANCE_WEIGHT[itemImportance(item)] + knowledgeWeaknessBonus(item) + weakGuard + mistakeGuard + stableBonus + (cram ? 20 : 0) - recencyPenalty;
 }
 
 function resultFromPercent(percent) {
@@ -1674,6 +1796,26 @@ function weightedLatestMistakeScore(scores) {
   const latest = scores[0];
   const restAverage = averageScores(scores.slice(1, 10));
   return Math.round(clamp(latest * 0.5 + restAverage * 0.5, 0, 100));
+}
+
+function latestLogFor(sourceType, sourceId) {
+  return state.logs
+    .filter((log) => log.sourceType === sourceType && log.sourceId === sourceId)
+    .sort((a, b) => (b.createdAt || b.date || "").localeCompare(a.createdAt || a.date || ""))[0];
+}
+
+function latestRecallPercent(item) {
+  const stored = Number(item.lastRecallPercent);
+  if (Number.isFinite(stored)) return stored;
+  const sourceType = isMistakeItem(item) ? "mistake" : "study";
+  const latest = latestLogFor(sourceType, item.id);
+  const score = Number(latest?.recallPercent ?? latest?.afterScore ?? item.memoryScore ?? 70);
+  return Number.isFinite(score) ? clamp(score, 0, 100) : 70;
+}
+
+function isMistakeItem(item) {
+  if (item?.type) return item.type === "mistake";
+  return state.mistakes.some((row) => row.id === item?.id);
 }
 
 function averageScores(scores) {
@@ -2092,7 +2234,8 @@ async function postponeTask(taskId, sourceType, sourceId) {
   if (taskId && !taskId.startsWith("cram-")) {
     const task = state.tasks.find((row) => row.id === taskId);
     if (task) {
-      task.scheduledDate = addDays(toDateInput(new Date()), 1);
+      task.earliestDate = addDays(toDateInput(new Date()), 1);
+      task.scheduledDate = task.earliestDate;
       task.updatedAt = now();
       await put("tasks", task);
     }
@@ -2100,7 +2243,7 @@ async function postponeTask(taskId, sourceType, sourceId) {
     const item = findItem(sourceType, sourceId);
     if (item) await createNextTask(sourceType, item, toDateInput(new Date()), "postponed");
   }
-  await loadState();
+  await refreshSchedule();
   toast("已延后 1 天。");
   render();
 }
@@ -2287,7 +2430,7 @@ async function addSeedData() {
   };
   await put("study", study);
   await createNextTask("study", study, study.date);
-  await loadState();
+  await refreshSchedule();
   toast("示例数据已加入。");
   render();
 }
@@ -2378,7 +2521,7 @@ async function importJson(event) {
   for (const [store, rows] of Object.entries(imported)) {
     for (const row of rows) await put(store, row);
   }
-  await loadState();
+  await refreshSchedule();
   event.target.value = "";
   toast("JSON 备份已导入。");
   render();
@@ -2440,7 +2583,7 @@ function treeOptionLabel(tag, depth) {
 }
 
 function nextTaskDate(type, sourceId) {
-  const task = state.tasks
+  const task = buildDisplayTasks()
     .filter((row) => row.status === "pending" && row.sourceType === type && row.sourceId === sourceId)
     .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate))[0];
   return task?.scheduledDate || "";
@@ -2645,6 +2788,18 @@ function addDays(dateString, days) {
   const date = new Date(`${dateString}T12:00:00`);
   date.setDate(date.getDate() + Number(days));
   return toDateInput(date);
+}
+
+function minDate(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  return a <= b ? a : b;
+}
+
+function maxDate(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  return a >= b ? a : b;
 }
 
 function diffDays(start, end) {
