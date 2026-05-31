@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>自适应复习与错题管理器</title>
-    <link rel="stylesheet" href="styles.css?v=20260530-custom-question-types" />
+    <link rel="stylesheet" href="styles.css?v=20260531-dual-score-queue" />
   </head>
   <body>
     <div class="app-shell">
@@ -142,7 +142,11 @@
                   <input name="cramWindow" type="number" min="1" max="90" value="14" />
                 </label>
                 <label>
-                  每日考前重点上限
+                  每日复习上限
+                  <input name="dailyReviewLimit" type="number" min="1" max="80" value="6" />
+                </label>
+                <label>
+                  考前重点候选上限
                   <input name="dailyCramLimit" type="number" min="1" max="80" value="20" />
                 </label>
                 <button class="primary" type="submit">保存设置</button>
@@ -559,6 +563,6 @@
 
     <datalist id="tagOptions"></datalist>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="app.js?v=20260530-custom-question-types"></script>
+    <script src="app.js?v=20260531-dual-score-queue"></script>
   </body>
 </html>
