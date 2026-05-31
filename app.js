@@ -3,6 +3,7 @@ const DB_VERSION = 1;
 const STORES = ["settings", "tags", "study", "mistakes", "logs", "tasks"];
 const BASE_INTERVALS = [1, 2, 4, 7, 15, 30];
 const IMPORTANCE_WEIGHT = { veryHigh: 45, high: 30, medium: 15, low: 0 };
+const NEW_STUDY_PRIORITY_BONUS = 18;
 const TAG_SCORE_WEIGHT = { veryHigh: 5, high: 3, medium: 2, low: 1 };
 const TAG_STUDY_RATIO = 0.6;
 const TAG_MISTAKE_RATIO = 0.4;
@@ -41,6 +42,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   db = await openDb();
   await loadState();
   const repairedLegacyTags = await repairLegacySplitEnumerationTags();
+  await refreshSchedule();
   bindEvents();
   setDefaultDates();
   render();
@@ -1763,7 +1765,8 @@ function priorityScore(item, cram) {
   const stableBonus = score >= 80 && recall >= 85 ? -18 : 0;
   const weakGuard = score < 60 ? 12 : score < 80 ? 6 : 0;
   const mistakeGuard = isMistakeItem(item) && recall < 80 ? 10 : 0;
-  return (100 - score) + IMPORTANCE_WEIGHT[itemImportance(item)] + knowledgeWeaknessBonus(item) + weakGuard + mistakeGuard + stableBonus + (cram ? 20 : 0) - recencyPenalty;
+  const newStudyBonus = isNewStudyItem(item) ? NEW_STUDY_PRIORITY_BONUS : 0;
+  return (100 - score) + IMPORTANCE_WEIGHT[itemImportance(item)] + knowledgeWeaknessBonus(item) + weakGuard + mistakeGuard + newStudyBonus + stableBonus + (cram ? 20 : 0) - recencyPenalty;
 }
 
 function resultFromPercent(percent) {
@@ -1816,6 +1819,12 @@ function latestRecallPercent(item) {
 function isMistakeItem(item) {
   if (item?.type) return item.type === "mistake";
   return state.mistakes.some((row) => row.id === item?.id);
+}
+
+function isNewStudyItem(item) {
+  if (item?.type && item.type !== "study") return false;
+  const study = item?.title != null ? item : state.study.find((row) => row.id === item?.id);
+  return Boolean(study) && (study.studyKind || "new") === "new";
 }
 
 function averageScores(scores) {
