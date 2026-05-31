@@ -1681,7 +1681,6 @@ function migratedIntervalStateForTask(task, item) {
   const latest = latestLogFor(task.sourceType, task.sourceId);
   const fromDate = latest?.date || item.lastReviewedAt;
   if (!fromDate) return null;
-  if (task.earliestDate && task.earliestDate > addDays(fromDate, 1)) return null;
   const recallPercent = clamp(Number(latest?.recallPercent ?? latest?.afterScore ?? item.lastRecallPercent ?? item.memoryScore ?? 70), 0, 100);
   const historicalScore = Number(latest?.beforeScore ?? item.memoryScore ?? currentScore(item));
   const baseIndex = legacyIntervalBaseIndex(task.sourceType, task.sourceId, item, latest);
