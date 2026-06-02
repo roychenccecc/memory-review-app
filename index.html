@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>自适应复习与错题管理器</title>
-    <link rel="stylesheet" href="styles.css?v=20260531-force-schedule-migration" />
+    <link rel="stylesheet" href="styles.css?v=20260602-tree-tag-selector" />
   </head>
   <body>
     <div class="app-shell">
@@ -203,7 +203,7 @@
         </label>
         <label>
           知识点标签
-          <input name="tags" placeholder="多个标签用逗号分隔，也可输入 A知识点>B知识点" list="tagOptions" />
+          <input name="tags" placeholder="可手动输入普通标签，多个用逗号分隔" />
         </label>
         <div class="selected-tags" id="studySelectedTags"></div>
         <div class="inline-tool tag-manage-tool">
@@ -289,7 +289,7 @@
         </label>
         <label>
           关联知识点标签
-          <input name="tags" placeholder="从下方选择已有知识点，可关联多个" list="tagOptions" />
+          <input name="tags" placeholder="可手动输入普通标签，多个用逗号分隔" />
         </label>
         <div class="selected-tags" id="mistakeSelectedTags"></div>
         <div class="inline-tool">
@@ -563,6 +563,6 @@
 
     <datalist id="tagOptions"></datalist>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="app.force-schedule-migration.js"></script>
+    <script src="app.tag-selector-tree.js"></script>
   </body>
 </html>
