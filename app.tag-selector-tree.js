@@ -175,9 +175,13 @@ function bindEvents() {
   document.getElementById("importJsonInput").addEventListener("change", importJson);
   document.getElementById("seedBtn").addEventListener("click", addSeedData);
   document.getElementById("createStudySimpleTagBtn").addEventListener("click", createStudySimpleTag);
+  document.getElementById("addStudyManualTagBtn").addEventListener("click", () => addManualSimpleTags("study"));
+  document.getElementById("studyManualTagInput").addEventListener("keydown", handleManualTagInputKeydown);
   document.getElementById("addStudyTreeLevelBtn").addEventListener("click", () => addStudyTreeLevel());
   document.getElementById("createStudyTreeTagBtn").addEventListener("click", createStudyTreeTag);
   document.getElementById("createMistakeSimpleTagBtn").addEventListener("click", createMistakeSimpleTag);
+  document.getElementById("addMistakeManualTagBtn").addEventListener("click", () => addManualSimpleTags("mistake"));
+  document.getElementById("mistakeManualTagInput").addEventListener("keydown", handleManualTagInputKeydown);
   document.getElementById("addMistakeTreeLevelBtn").addEventListener("click", () => addMistakeTreeLevel());
   document.getElementById("createMistakeTreeTagBtn").addEventListener("click", createMistakeTreeTag);
   document.getElementById("addExistingStudyTagBtn").addEventListener("click", addExistingStudyTag);
@@ -238,6 +242,7 @@ function render() {
   renderTagParentOptions();
   renderExistingTagSelectors();
   renderDeleteTagSelector();
+  renderSimpleTagChoices();
   renderStudyTreeBuilder();
   renderMistakeTreeBuilder();
   renderSelectedTagChips();
@@ -938,6 +943,29 @@ function renderSelectedTagChips() {
   renderSelectedTagChipsFor("#mistakeForm [name='tags']", "mistakeSelectedTags");
 }
 
+function renderSimpleTagChoices() {
+  const tags = simpleTagChoices();
+  ["study", "mistake"].forEach((kind) => {
+    const container = document.getElementById(`${kind}SimpleTagChoices`);
+    if (!container) return;
+    container.innerHTML = tags.length
+      ? tags.map((tag) => `
+        <span class="simple-tag-choice">
+          <button type="button" onclick="addSimpleTagChoice('${kind}', '${tag.id}')">${escapeHtml(tag.name)}</button>
+          <button class="simple-tag-delete" type="button" aria-label="删除 ${escapeHtml(tag.name)}" onclick="deleteSimpleTagChoice('${tag.id}')">×</button>
+        </span>
+      `).join("")
+      : '<span class="muted">还没有普通标签，输入后会自动保存到这里。</span>';
+  });
+}
+
+function simpleTagChoices() {
+  const parentIds = new Set(state.tags.map((tag) => tag.parentId).filter(Boolean));
+  return state.tags
+    .filter((tag) => !tag.parentId && !parentIds.has(tag.id))
+    .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
+}
+
 function renderSelectedTagChipsFor(inputSelector, containerId) {
   const input = document.querySelector(inputSelector);
   const container = document.getElementById(containerId);
@@ -1164,6 +1192,43 @@ async function createSimpleTag({ nameId, importanceId, targetSelector, emptyMess
   toast(`已添加${successLabel}“${tagPath(tag)}”。`);
 }
 
+async function addManualSimpleTags(kind) {
+  const input = document.getElementById(`${kind}ManualTagInput`);
+  const target = document.querySelector(`#${kind}Form [name='tags']`);
+  const names = parseTags(input.value);
+  if (!names.length) {
+    toast("先输入普通标签名。");
+    return;
+  }
+  for (const name of names) {
+    const tag = await createOrUpdateTag({ name, parentId: "", importance: "medium" });
+    appendTagToInput(target, tag.name);
+  }
+  input.value = "";
+  await refreshAfterTagChange();
+  toast("普通标签已添加并保存到备选。");
+}
+
+function handleManualTagInputKeydown(event) {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  const kind = event.currentTarget.id.startsWith("study") ? "study" : "mistake";
+  addManualSimpleTags(kind);
+}
+
+function addSimpleTagChoice(kind, tagId) {
+  const tag = state.tags.find((row) => row.id === tagId);
+  if (!tag) return;
+  appendTagToInput(document.querySelector(`#${kind}Form [name='tags']`), tag.name);
+}
+
+async function deleteSimpleTagChoice(tagId) {
+  const tag = state.tags.find((row) => row.id === tagId);
+  if (!tag) return;
+  removeTagValueFromOpenForms(tag.name);
+  await deleteTag(tag.id);
+}
+
 async function createStudyTreeTag() {
   await createTreeTag({
     kind: "study",
@@ -1291,6 +1356,7 @@ async function refreshAfterTagChange() {
   renderTagParentOptions();
   renderExistingTagSelectors();
   renderDeleteTagSelector();
+  renderSimpleTagChoices();
   renderStudyTreeBuilder();
   renderMistakeTreeBuilder();
   renderSelectedTagChips();
@@ -3043,6 +3109,8 @@ window.deleteTag = deleteTag;
 window.deleteSelectedTag = deleteSelectedTag;
 window.renameTag = renameTag;
 window.removeTagFromField = removeTagFromField;
+window.addSimpleTagChoice = addSimpleTagChoice;
+window.deleteSimpleTagChoice = deleteSimpleTagChoice;
 window.cycleImportance = cycleImportance;
 window.toggleTagNode = toggleTagNode;
 window.jumpToTagMistakes = jumpToTagMistakes;
