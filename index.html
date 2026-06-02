@@ -522,6 +522,52 @@
       </div>
     </dialog>
 
+    <dialog id="tagDetailModal">
+      <div class="modal-card tag-detail-modal">
+        <div class="modal-head">
+          <div>
+            <h3 id="tagDetailTitle">知识点详情</h3>
+            <p class="muted" id="tagDetailPath"></p>
+          </div>
+          <button class="icon-button" data-close-modal type="button">×</button>
+        </div>
+        <div class="tag-detail-meta" id="tagDetailMeta"></div>
+        <section class="modal-section">
+          <h4>知识点设置</h4>
+          <div class="tag-detail-settings">
+            <label>
+              重要性
+              <select id="tagDetailImportance"></select>
+            </label>
+            <div>
+              <div class="field-label">考察题型</div>
+              <div id="tagDetailQuestionTypes"></div>
+            </div>
+            <button class="small-button" onclick="openQuestionTypesFromTagDetail()" type="button">管理题型</button>
+          </div>
+        </section>
+        <section class="modal-section">
+          <h4>复习要点备注</h4>
+          <textarea id="tagDetailNotes" rows="5" placeholder="写这个知识点的核心定义、易混点、常错提醒、考前要看的话"></textarea>
+          <div class="modal-actions">
+            <button class="primary" id="saveTagDetailBtn" type="button">保存详情</button>
+          </div>
+        </section>
+        <section class="modal-section">
+          <h4>关联学习记录</h4>
+          <div class="tag-detail-list" id="tagDetailStudyList"></div>
+        </section>
+        <section class="modal-section">
+          <h4>关联错题记录</h4>
+          <div class="tag-detail-list" id="tagDetailMistakeList"></div>
+        </section>
+        <section class="modal-section">
+          <h4>最近复习历史</h4>
+          <div class="history-list modal-history-list" id="tagDetailLogList"></div>
+        </section>
+      </div>
+    </dialog>
+
     <dialog id="questionTypeModal">
       <form id="questionTypeForm" class="modal-card tag-manage-modal">
         <div class="modal-head">
