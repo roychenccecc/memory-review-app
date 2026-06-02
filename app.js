@@ -20,6 +20,7 @@ let lastChainTagId = "";
 let tagMapZoom = 1;
 let tagGestureStartZoom = 1;
 let activeMistakeTagFilterId = "";
+let activeTagDetailId = "";
 let state = {
   settings: {
     id: "main",
@@ -153,6 +154,7 @@ function bindEvents() {
   document.getElementById("mistakeRecordForm").addEventListener("submit", saveMistakeRecord);
   document.getElementById("questionTypeForm").addEventListener("submit", saveQuestionTypes);
   document.getElementById("addQuestionTypeBtn").addEventListener("click", addQuestionType);
+  document.getElementById("saveTagDetailBtn").addEventListener("click", saveTagDetail);
   document.getElementById("mistakeRecordPercentRange").addEventListener("input", syncMistakeRecordRecallFromRange);
   document.getElementById("mistakeRecordPercentInput").addEventListener("input", syncMistakeRecordRecallFromInput);
   document.getElementById("reviewFilter").addEventListener("change", renderDashboard);
@@ -529,20 +531,18 @@ function renderTagMindNode(tag, query = "", tagScoreCache = new Map()) {
           ${hasChildren
             ? `<button class="mind-toggle" onclick="toggleTagNode('${tag.id}')" type="button" aria-label="${collapsed ? "展开" : "收起"}">${collapsed ? "+" : "-"}</button>`
             : '<span class="mind-toggle placeholder"></span>'}
-          <div>
+          <div class="mind-detail-trigger" onclick="openTagDetail('${tag.id}')" onkeydown="handleTagDetailKey(event, '${tag.id}')" role="button" tabindex="0" title="查看知识点详情">
             <strong>${escapeHtml(tag.name)}</strong>
             <div class="mind-meta">
               <span class="badge ${tag.importance}">${importanceLabel(tag.importance)}</span>
               ${renderTagMemoryScore(tagSummary.score)}
-              ${tagSummary.mistakeCount ? `<button class="mistake-count-badge" onclick="jumpToTagMistakes('${tag.id}')" type="button">错题 ${tagSummary.mistakeCount}</button>` : ""}
             </div>
             ${renderQuestionTypeBadges(tag)}
           </div>
         </div>
+        ${tagSummary.mistakeCount ? `<button class="mistake-count-badge" onclick="jumpToTagMistakes('${tag.id}')" type="button">错题 ${tagSummary.mistakeCount}</button>` : ""}
         <div class="card-actions mind-actions">
           <button class="small-button" onclick="renameTag('${tag.id}')">重命名</button>
-          <button class="small-button" onclick="cycleImportance('${tag.id}')">切换重要性</button>
-          <button class="small-button" onclick="openQuestionTypes('${tag.id}')">题型</button>
           <button class="small-button danger" onclick="deleteTag('${tag.id}')">删除</button>
         </div>
       </article>
@@ -562,6 +562,172 @@ function renderQuestionTypeBadges(tag) {
   const types = Array.isArray(tag.questionTypes) ? tag.questionTypes : [];
   if (!types.length) return "";
   return `<div class="question-type-row">${types.map((type) => `<span>${escapeHtml(type)}</span>`).join("")}</div>`;
+}
+
+function handleTagDetailKey(event, tagId) {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  openTagDetail(tagId);
+}
+
+function openTagDetail(tagId) {
+  const tag = state.tags.find((row) => row.id === tagId);
+  if (!tag) {
+    toast("没有找到这个知识点。");
+    return;
+  }
+  activeTagDetailId = tag.id;
+  renderTagDetail(tag);
+  openModal("tagDetailModal");
+}
+
+function renderTagDetail(tag) {
+  const tagIds = descendantTagIds(tag.id);
+  const tagScoreCache = new Map();
+  const summary = tagMemorySummary(tag, tagScoreCache);
+  const studyItems = state.study
+    .filter((item) => (item.tagIds || []).some((tagId) => tagIds.includes(tagId)))
+    .sort(byDateDesc);
+  const mistakeItems = state.mistakes
+    .filter((item) => (item.tagIds || []).some((tagId) => tagIds.includes(tagId)))
+    .sort(byDateDesc);
+  const logs = relatedTagReviewLogs(studyItems, mistakeItems);
+
+  setText("tagDetailTitle", `知识点详情：${tag.name}`);
+  document.getElementById("tagDetailPath").textContent = tagPath(tag);
+  document.getElementById("tagDetailMeta").innerHTML = `
+    <span class="tag-pill" style="border-left: 5px solid ${escapeHtml(tag.color || "#64748b")}">${escapeHtml(tagPath(tag))}</span>
+    ${renderTagMemoryScore(summary.score)}
+    <span class="badge ${tag.importance}">${importanceLabel(tag.importance)}</span>
+    <span class="badge neutral">错题 ${summary.mistakeCount || 0}</span>
+    <span class="badge neutral">学习 ${studyItems.length}</span>
+    <span class="badge neutral">含子知识点 ${Math.max(tagIds.length - 1, 0)}</span>
+  `;
+  const importanceSelect = document.getElementById("tagDetailImportance");
+  importanceSelect.innerHTML = importanceOptions(tag.importance);
+  importanceSelect.value = tag.importance || "medium";
+  document.getElementById("tagDetailQuestionTypes").innerHTML = (tag.questionTypes || []).length
+    ? renderQuestionTypeBadges(tag)
+    : '<span class="muted">还没有设置考察题型。</span>';
+  document.getElementById("tagDetailNotes").value = tag.reviewNotes || "";
+  document.getElementById("tagDetailStudyList").innerHTML = studyItems.length
+    ? studyItems.map(renderTagDetailStudyItem).join("")
+    : empty("这个知识点范围下还没有学习记录。");
+  document.getElementById("tagDetailMistakeList").innerHTML = mistakeItems.length
+    ? mistakeItems.map(renderTagDetailMistakeItem).join("")
+    : empty("这个知识点范围下还没有错题记录。");
+  document.getElementById("tagDetailLogList").innerHTML = logs.length
+    ? logs.map(renderTagDetailLog).join("")
+    : empty("这个知识点范围下还没有复习记录。");
+}
+
+function relatedTagReviewLogs(studyItems, mistakeItems) {
+  const studyIds = new Set(studyItems.map((item) => item.id));
+  const mistakeIds = new Set(mistakeItems.map((item) => item.id));
+  return state.logs
+    .filter((log) => (log.sourceType === "study" && studyIds.has(log.sourceId)) || (log.sourceType === "mistake" && mistakeIds.has(log.sourceId)))
+    .sort((a, b) => (b.createdAt || b.date || "").localeCompare(a.createdAt || a.date || ""))
+    .slice(0, 20);
+}
+
+function renderTagDetailStudyItem(item) {
+  const nextDate = nextTaskDate("study", item.id);
+  return `
+    <article class="tag-detail-item">
+      <div class="tag-detail-item-head">
+        <div>
+          <strong>${escapeHtml(item.title || "未命名学习")}</strong>
+          <div class="meta">
+            <span>${studyKindLabel(item)}</span>
+            <span>${formatDate(item.date || item.createdAt?.slice(0, 10))}</span>
+            <span>已复习 ${reviewCount("study", item.id)} 次</span>
+            <span>记忆分 ${currentScore(item)}</span>
+            ${nextDate ? `<span>下次 ${formatDate(nextDate)}</span>` : ""}
+          </div>
+        </div>
+        <button class="small-button" onclick="openStudyRecordFromTagDetail('${item.id}')" type="button">学习记录</button>
+      </div>
+      ${item.notes ? `<p class="body-text">${escapeHtml(truncate(item.notes, 120))}</p>` : ""}
+      ${renderTagRow(tagsFor(item.tagIds || []).filter(isTreeKnowledgeTag))}
+    </article>
+  `;
+}
+
+function renderTagDetailMistakeItem(item) {
+  const title = item.location || firstLine(item.question) || "未命名错题";
+  const nextDate = nextTaskDate("mistake", item.id);
+  return `
+    <article class="tag-detail-item">
+      <div class="tag-detail-item-head">
+        <div>
+          <strong>${escapeHtml(title)}</strong>
+          <div class="meta">
+            <span>错题</span>
+            <span>${formatDate(item.date || item.createdAt?.slice(0, 10))}</span>
+            <span>已复习 ${reviewCount("mistake", item.id)} 次</span>
+            <span>记忆分 ${currentScore(item)}</span>
+            ${nextDate ? `<span>下次 ${formatDate(nextDate)}</span>` : ""}
+          </div>
+        </div>
+        <button class="small-button" onclick="openMistakeRecordFromTagDetail('${item.id}')" type="button">错题记录</button>
+      </div>
+      ${item.reason ? `<p class="body-text">错因：${escapeHtml(truncate(item.reason, 120))}</p>` : ""}
+      ${renderTagRow(tagsFor(item.tagIds || []).filter(isTreeKnowledgeTag))}
+    </article>
+  `;
+}
+
+function renderTagDetailLog(log) {
+  const item = findItem(log.sourceType, log.sourceId);
+  const title = item
+    ? (log.sourceType === "study" ? item.title : item.location || firstLine(item.question) || "未命名错题")
+    : "已删除内容";
+  return `
+    <article class="history-card compact-history-card">
+      <div class="meta">
+        <span>${formatDate(log.date)}</span>
+        <span>${TYPE_LABEL[log.sourceType]}</span>
+        <span>记住 ${Number(log.recallPercent ?? log.afterScore ?? 0)}%</span>
+        <span>分数 ${Number(log.beforeScore ?? 0)} → ${Number(log.afterScore ?? 0)}</span>
+      </div>
+      <strong>${escapeHtml(title || "未命名内容")}</strong>
+      ${log.notes ? `<p class="body-text">${escapeHtml(truncate(log.notes, 140))}</p>` : ""}
+      ${renderSectionScoreSummary(log.sectionScores)}
+    </article>
+  `;
+}
+
+function openStudyRecordFromTagDetail(studyId) {
+  document.getElementById("tagDetailModal").close();
+  openStudyRecord(studyId);
+}
+
+function openMistakeRecordFromTagDetail(mistakeId) {
+  document.getElementById("tagDetailModal").close();
+  openMistakeRecord(mistakeId);
+}
+
+function openQuestionTypesFromTagDetail() {
+  const tagId = activeTagDetailId;
+  document.getElementById("tagDetailModal").close();
+  openQuestionTypes(tagId);
+}
+
+async function saveTagDetail() {
+  const tag = state.tags.find((row) => row.id === activeTagDetailId);
+  if (!tag) {
+    toast("没有找到这个知识点。");
+    return;
+  }
+  tag.importance = document.getElementById("tagDetailImportance").value || "medium";
+  tag.reviewNotes = document.getElementById("tagDetailNotes").value.trim();
+  tag.updatedAt = now();
+  await put("tags", tag);
+  await loadState();
+  const updatedTag = state.tags.find((row) => row.id === activeTagDetailId);
+  if (updatedTag) renderTagDetail(updatedTag);
+  render();
+  toast("知识点详情已保存。");
 }
 
 function toggleTagNode(idValue) {
@@ -3074,6 +3240,11 @@ window.renameTag = renameTag;
 window.removeTagFromField = removeTagFromField;
 window.addSimpleTagChoice = addSimpleTagChoice;
 window.deleteSimpleTagChoice = deleteSimpleTagChoice;
+window.openTagDetail = openTagDetail;
+window.handleTagDetailKey = handleTagDetailKey;
+window.openStudyRecordFromTagDetail = openStudyRecordFromTagDetail;
+window.openMistakeRecordFromTagDetail = openMistakeRecordFromTagDetail;
+window.openQuestionTypesFromTagDetail = openQuestionTypesFromTagDetail;
 window.cycleImportance = cycleImportance;
 window.toggleTagNode = toggleTagNode;
 window.jumpToTagMistakes = jumpToTagMistakes;
