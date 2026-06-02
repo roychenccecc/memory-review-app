@@ -213,6 +213,11 @@ button {
   gap: 12px;
 }
 
+.tag-field-hint {
+  margin: -6px 0 0;
+  font-size: 12px;
+}
+
 .tag-create-panel {
   display: grid;
   gap: 10px;
