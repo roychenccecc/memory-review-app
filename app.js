@@ -882,10 +882,7 @@ function renderWeakTags() {
 }
 
 function renderTagOptions() {
-  document.getElementById("tagOptions").innerHTML = [...state.tags]
-    .sort((a, b) => tagPath(a).localeCompare(tagPath(b), "zh-CN"))
-    .map((tag) => `<option value="${escapeHtml(tagPath(tag))}"></option>`)
-    .join("");
+  document.getElementById("tagOptions").innerHTML = "";
 }
 
 function renderTagParentOptions() {
@@ -904,14 +901,23 @@ function renderTagParentOptions() {
 function renderExistingTagSelectors() {
   const options = [
     '<option value="">选择一个知识点</option>',
-    ...tagTreeRows()
-      .map(({ tag, depth }) => `<option value="${escapeHtml(tagPath(tag))}">${escapeHtml(treeOptionLabel(tag, depth))}</option>`),
+    ...uniqueTagTreeRows()
+      .map(({ tag, depth }) => `<option value="${escapeHtml(tag.id)}">${escapeHtml(treeOptionLabel(tag, depth))}</option>`),
   ].join("");
   document.querySelectorAll(".existing-tag-select").forEach((select) => {
     const previous = select.value;
     select.innerHTML = options;
-    if ([...select.options].some((option) => option.value === previous)) select.value = previous;
+    const previousId = tagIdFromSelectValue(previous);
+    if ([...select.options].some((option) => option.value === previousId)) select.value = previousId;
   });
+}
+
+function treeBranchOptions() {
+  return [
+    '<option value="">选择已有分支</option>',
+    ...uniqueTagTreeRows()
+      .map(({ tag, depth }) => `<option value="${escapeHtml(tag.id)}">${escapeHtml(treeOptionLabel(tag, depth))}</option>`),
+  ].join("");
 }
 
 function renderDeleteTagSelector() {
@@ -936,7 +942,8 @@ function renderSelectedTagChipsFor(inputSelector, containerId) {
   const input = document.querySelector(inputSelector);
   const container = document.getElementById(containerId);
   if (!input || !container) return;
-  const tags = parseTags(input.value);
+  const tags = uniqueTagNames(parseTags(input.value));
+  if (input.value !== tags.join("，")) input.value = tags.join("，");
   container.innerHTML = tags.length
     ? tags.map((tag) => `
       <span class="selected-tag">
@@ -959,7 +966,17 @@ function renderTreeBuilder(kind) {
   const builder = document.getElementById(`${kind}TreeBuilder`);
   if (!builder) return;
   if (!builder.children.length) addTreeLevel(kind, "", false);
+  refreshTreeBranchSelectors(kind);
   updateTreeLevelLabels(kind);
+}
+
+function refreshTreeBranchSelectors(kind) {
+  const options = treeBranchOptions();
+  document.querySelectorAll(`#${kind}TreeBuilder .${kind}-tree-branch-select`).forEach((select) => {
+    const previous = select.value;
+    select.innerHTML = options;
+    if ([...select.options].some((option) => option.value === previous)) select.value = previous;
+  });
 }
 
 function addStudyTreeLevel(value = "", shouldFocus = true) {
@@ -979,9 +996,20 @@ function addTreeLevel(kind, value = "", shouldFocus = true) {
   row.dataset.levelId = String(treeLevelCounters[kind]);
   row.innerHTML = `
     <span class="level-index"></span>
-    <input class="${kind}-tree-level-input" list="tagOptions" placeholder="输入或选择本级知识点" value="${escapeHtml(value)}" />
+    <input class="${kind}-tree-level-input" placeholder="输入本级知识点或完整链条" value="${escapeHtml(value)}" />
+    <select class="${kind}-tree-branch-select tree-branch-select" aria-label="选择已有分支">
+      ${treeBranchOptions()}
+    </select>
     <button class="small-button danger remove-level-button" type="button">删除这级</button>
   `;
+  row.querySelector(`.${kind}-tree-branch-select`).addEventListener("change", (event) => {
+    const tag = state.tags.find((row) => row.id === event.target.value);
+    if (!tag) return;
+    const input = row.querySelector(`.${kind}-tree-level-input`);
+    input.value = tagPath(tag);
+    event.target.value = "";
+    input.focus();
+  });
   row.querySelector(".remove-level-button").addEventListener("click", () => {
     if (builder.children.length === 1) {
       row.querySelector(`.${kind}-tree-level-input`).value = "";
@@ -1176,7 +1204,12 @@ function addExistingStudyTag() {
     toast("先选择一个已有知识点。");
     return;
   }
-  appendTagToInput(document.querySelector("#studyForm [name='tags']"), select.value);
+  const tag = state.tags.find((row) => row.id === select.value);
+  if (!tag) {
+    toast("没有找到这个知识点。");
+    return;
+  }
+  appendTagToInput(document.querySelector("#studyForm [name='tags']"), tagPath(tag));
   select.value = "";
   toast("已添加到学习记录。");
 }
@@ -1187,7 +1220,12 @@ function addExistingMistakeTag() {
     toast("先选择一个已有知识点。");
     return;
   }
-  appendTagToInput(document.querySelector("#mistakeForm [name='tags']"), select.value);
+  const tag = state.tags.find((row) => row.id === select.value);
+  if (!tag) {
+    toast("没有找到这个知识点。");
+    return;
+  }
+  appendTagToInput(document.querySelector("#mistakeForm [name='tags']"), tagPath(tag));
   select.value = "";
   toast("已添加到错题关联知识点。");
 }
@@ -1198,13 +1236,12 @@ async function deleteExistingTagFromSelect(selectId) {
     toast("先选择要删除的知识点。");
     return;
   }
-  const selectedPath = select.value;
-  const tag = findTagByPath(selectedPath);
+  const tag = state.tags.find((row) => row.id === select.value) || findTagByPath(select.value);
   if (!tag) {
     toast("没有找到这个知识点。");
     return;
   }
-  removeTagValueFromOpenForms(selectedPath);
+  removeTagValueFromOpenForms(tagPath(tag));
   await deleteTag(tag.id);
 }
 
@@ -2642,8 +2679,24 @@ function tagTreeRows() {
   return rows;
 }
 
+function uniqueTagTreeRows() {
+  const seen = new Set();
+  return tagTreeRows().filter(({ tag }) => {
+    const key = canonicalTagPath(tagPath(tag));
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function treeOptionLabel(tag, depth) {
   return `${"　".repeat(depth)}${depth ? "└ " : ""}${tag.name}`;
+}
+
+function tagIdFromSelectValue(value) {
+  if (!value) return "";
+  if (state.tags.some((tag) => tag.id === value)) return value;
+  return findTagByPath(value)?.id || "";
 }
 
 function nextTaskDate(type, sourceId) {
@@ -2670,9 +2723,22 @@ function parseTags(value) {
     .filter(Boolean);
 }
 
+function uniqueTagNames(names = []) {
+  const seen = new Set();
+  const unique = [];
+  for (const name of names) {
+    const clean = String(name || "").trim();
+    if (!clean) continue;
+    const key = canonicalTagPath(clean);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(clean);
+  }
+  return unique;
+}
+
 function appendTagToInput(input, tagName) {
-  const tags = parseTags(input.value);
-  if (!tags.includes(tagName)) tags.push(tagName);
+  const tags = uniqueTagNames([...parseTags(input.value), tagName]);
   input.value = tags.join("，");
   renderSelectedTagChips();
 }
@@ -2680,7 +2746,7 @@ function appendTagToInput(input, tagName) {
 function removeTagFromField(containerId, tagName) {
   const inputSelector = containerId === "studySelectedTags" ? "#studyForm [name='tags']" : "#mistakeForm [name='tags']";
   const input = document.querySelector(inputSelector);
-  input.value = parseTags(input.value).filter((tag) => tag !== tagName).join("，");
+  input.value = parseTags(input.value).filter((tag) => canonicalTagPath(tag) !== canonicalTagPath(tagName)).join("，");
   renderSelectedTagChips();
 }
 
