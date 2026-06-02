@@ -174,12 +174,10 @@ function bindEvents() {
   document.getElementById("syncAppleCalendarBtn").addEventListener("click", syncAppleCalendar);
   document.getElementById("importJsonInput").addEventListener("change", importJson);
   document.getElementById("seedBtn").addEventListener("click", addSeedData);
-  document.getElementById("createStudySimpleTagBtn").addEventListener("click", createStudySimpleTag);
   document.getElementById("addStudyManualTagBtn").addEventListener("click", () => addManualSimpleTags("study"));
   document.getElementById("studyManualTagInput").addEventListener("keydown", handleManualTagInputKeydown);
   document.getElementById("addStudyTreeLevelBtn").addEventListener("click", () => addStudyTreeLevel());
   document.getElementById("createStudyTreeTagBtn").addEventListener("click", createStudyTreeTag);
-  document.getElementById("createMistakeSimpleTagBtn").addEventListener("click", createMistakeSimpleTag);
   document.getElementById("addMistakeManualTagBtn").addEventListener("click", () => addManualSimpleTags("mistake"));
   document.getElementById("mistakeManualTagInput").addEventListener("keydown", handleManualTagInputKeydown);
   document.getElementById("addMistakeTreeLevelBtn").addEventListener("click", () => addMistakeTreeLevel());
@@ -1155,41 +1153,6 @@ async function saveMistake(event) {
   form.closest("dialog").close();
   toast(existing ? "错题已更新。" : "错题已保存，并加入复习计划。");
   render();
-}
-
-async function createStudySimpleTag() {
-  await createSimpleTag({
-    nameId: "studySimpleTagName",
-    importanceId: "studySimpleTagImportance",
-    targetSelector: "#studyForm [name='tags']",
-    emptyMessage: "先输入普通标签名。",
-    successLabel: "普通标签",
-  });
-}
-
-async function createMistakeSimpleTag() {
-  await createSimpleTag({
-    nameId: "mistakeSimpleTagName",
-    importanceId: "mistakeSimpleTagImportance",
-    targetSelector: "#mistakeForm [name='tags']",
-    emptyMessage: "先输入错题标签名。",
-    successLabel: "错题标签",
-  });
-}
-
-async function createSimpleTag({ nameId, importanceId, targetSelector, emptyMessage, successLabel }) {
-  const nameInput = document.getElementById(nameId);
-  const importanceInput = document.getElementById(importanceId);
-  const name = nameInput.value.trim();
-  if (!name) {
-    toast(emptyMessage);
-    return;
-  }
-  const tag = await createOrUpdateTag({ name, parentId: "", importance: importanceInput.value });
-  appendTagToInput(document.querySelector(targetSelector), tagPath(tag));
-  nameInput.value = "";
-  await refreshAfterTagChange();
-  toast(`已添加${successLabel}“${tagPath(tag)}”。`);
 }
 
 async function addManualSimpleTags(kind) {
