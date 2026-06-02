@@ -208,6 +208,54 @@ button {
   min-width: 0;
 }
 
+.manual-tag-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.simple-tag-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.simple-tag-choice {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #f7faf9;
+  overflow: hidden;
+}
+
+.simple-tag-choice button {
+  border: 0;
+  background: transparent;
+  min-height: 28px;
+  padding: 4px 9px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.simple-tag-choice button:first-child {
+  max-width: min(320px, 62vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.simple-tag-choice .simple-tag-delete {
+  width: 28px;
+  padding: 0;
+  border-left: 1px solid var(--line);
+  color: var(--danger);
+}
+
 .tag-create-area {
   display: grid;
   gap: 12px;
@@ -1292,6 +1340,7 @@ dialog::backdrop {
   .stats-grid,
   .content-grid,
   .inline-tool,
+  .manual-tag-entry,
   .tag-builder-row,
   .tree-builder-row,
   .tree-builder-actions,
