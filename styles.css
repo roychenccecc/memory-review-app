@@ -292,7 +292,6 @@ button {
   font-size: 12px;
 }
 
-.tag-builder-row,
 .tree-builder-actions {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) minmax(120px, 0.38fr) auto;
@@ -1341,7 +1340,6 @@ dialog::backdrop {
   .content-grid,
   .inline-tool,
   .manual-tag-entry,
-  .tag-builder-row,
   .tree-builder-row,
   .tree-builder-actions,
   .chain-row,
