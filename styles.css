@@ -141,7 +141,7 @@ button {
 
 .inline-tool {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(140px, 0.6fr) minmax(150px, 0.7fr) 140px auto;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
   gap: 10px;
   align-items: end;
   padding: 12px;
@@ -150,12 +150,11 @@ button {
   background: #fbfcfb;
 }
 
-#mistakeModal .inline-tool {
-  grid-template-columns: minmax(220px, 1fr) auto auto;
-}
-
-#studyModal .tag-manage-tool {
-  grid-template-columns: minmax(220px, 1fr) auto auto;
+.inline-tool label,
+.inline-tool select,
+.tree-builder-row input,
+.tree-builder-row select {
+  min-width: 0;
 }
 
 .delete-tool {
@@ -206,6 +205,7 @@ button {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  min-width: 0;
 }
 
 .tag-create-area {
@@ -254,7 +254,7 @@ button {
 
 .tree-builder-row {
   display: grid;
-  grid-template-columns: 72px minmax(180px, 1fr) auto;
+  grid-template-columns: 72px minmax(180px, 1fr) minmax(150px, 0.55fr) auto;
   gap: 10px;
   align-items: center;
 }
@@ -273,6 +273,7 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  max-width: 100%;
   min-height: 30px;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -281,9 +282,12 @@ button {
   color: var(--ink);
   font-size: 13px;
   font-weight: 700;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .selected-tag button {
+  flex: 0 0 auto;
   display: grid;
   width: 20px;
   height: 20px;
