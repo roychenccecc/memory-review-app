@@ -486,6 +486,24 @@ button {
   line-height: 1.3;
 }
 
+.mind-detail-trigger {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.mind-detail-trigger:hover strong,
+.mind-detail-trigger:focus-visible strong {
+  text-decoration: underline;
+}
+
+.mind-detail-trigger:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.22);
+  outline-offset: 3px;
+}
+
 .mind-meta {
   display: flex;
   flex-wrap: wrap;
@@ -907,6 +925,11 @@ textarea {
   color: #9a3412;
 }
 
+.badge.neutral {
+  background: #eef2f7;
+  color: #475569;
+}
+
 .body-text {
   margin: 10px 0 0;
   color: #344349;
@@ -970,6 +993,60 @@ dialog::backdrop {
 
 .tag-manage-modal {
   width: min(640px, calc(100vw - 28px));
+}
+
+.tag-detail-modal {
+  width: min(860px, calc(100vw - 28px));
+}
+
+.tag-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tag-detail-settings {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) minmax(220px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.field-label {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.tag-detail-list {
+  display: grid;
+  gap: 10px;
+}
+
+.tag-detail-item {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfdfc;
+}
+
+.tag-detail-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.tag-detail-item-head > div {
+  min-width: min(100%, 420px);
+}
+
+.tag-detail-item .tag-row {
+  margin: 0;
 }
 
 .check-grid {
@@ -1345,7 +1422,8 @@ dialog::backdrop {
   .chain-row,
   .chain-row + .chain-row,
   .review-options,
-  .recall-scale {
+  .recall-scale,
+  .tag-detail-settings {
     grid-template-columns: 1fr;
   }
 
