@@ -332,7 +332,7 @@ function renderReviewedTaskCard(task) {
       </div>
       <div class="card-actions">
         <button class="small-button" onclick="openEditItem('${task.sourceType}','${task.sourceId}')">编辑内容</button>
-        ${task.sourceType === "study" ? `<button class="small-button" onclick="openStudyRecord('${task.sourceId}')">学习记录</button>` : ""}
+        <button class="small-button" onclick="${task.sourceType === "mistake" ? `openMistakeRecord('${task.sourceId}')` : `openStudyRecord('${task.sourceId}')`}">${task.sourceType === "mistake" ? "错题记录" : "学习记录"}</button>
         <button class="small-button" onclick="openEditReview('${task.id}')">修改记录</button>
       </div>
     </article>
