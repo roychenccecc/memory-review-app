@@ -152,8 +152,7 @@ button {
 
 .inline-tool label,
 .inline-tool select,
-.tree-builder-row input,
-.tree-builder-row select {
+.tree-builder-row input {
   min-width: 0;
 }
 
@@ -292,6 +291,166 @@ button {
   font-size: 12px;
 }
 
+.knowledge-picker-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfb;
+}
+
+.knowledge-picker-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.knowledge-picker-head h4 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.knowledge-picker-head span,
+.knowledge-picker-current {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.knowledge-picker-tools {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto auto;
+  gap: 8px;
+}
+
+.knowledge-picker-current {
+  min-height: 26px;
+  border-radius: 8px;
+  padding: 6px 9px;
+  background: var(--surface-2);
+}
+
+.knowledge-picker-current strong {
+  color: var(--ink);
+}
+
+.knowledge-picker-tree {
+  max-height: 280px;
+  overflow: auto;
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  background: white;
+}
+
+.knowledge-picker-node {
+  display: grid;
+  gap: 4px;
+}
+
+.knowledge-picker-row {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+}
+
+.picker-toggle {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: white;
+  color: var(--ink);
+  font-weight: 900;
+  line-height: 1;
+}
+
+.picker-toggle.placeholder {
+  border-color: transparent;
+  background: transparent;
+}
+
+.picker-node-main {
+  display: flex;
+  min-height: 32px;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  padding: 5px 8px;
+  color: var(--ink);
+  text-align: left;
+  font-weight: 800;
+}
+
+.picker-node-main span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-node-main em {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 2px 7px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 11px;
+  font-style: normal;
+}
+
+.picker-node-main:hover,
+.knowledge-picker-node.selected > .knowledge-picker-row .picker-node-main {
+  background: #eef2f7;
+}
+
+.knowledge-picker-node.parent-selected > .knowledge-picker-row .picker-node-main {
+  box-shadow: inset 3px 0 0 #2563eb;
+}
+
+.picker-node-main.search-hit {
+  background: #fff7ed;
+}
+
+.knowledge-picker-children {
+  display: grid;
+  gap: 4px;
+  margin-left: 13px;
+  padding-left: 15px;
+  border-left: 2px solid #d7e0df;
+}
+
+.knowledge-picker-actions,
+.tree-parent-hint {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.tree-parent-hint {
+  justify-content: space-between;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.tree-parent-hint strong {
+  color: var(--ink);
+}
+
 .tree-builder-actions {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) minmax(120px, 0.38fr) auto;
@@ -306,7 +465,7 @@ button {
 
 .tree-builder-row {
   display: grid;
-  grid-template-columns: 72px minmax(180px, 1fr) minmax(150px, 0.55fr) auto;
+  grid-template-columns: 72px minmax(180px, 1fr) auto;
   gap: 10px;
   align-items: center;
 }
@@ -1417,6 +1576,7 @@ dialog::backdrop {
   .content-grid,
   .inline-tool,
   .manual-tag-entry,
+  .knowledge-picker-tools,
   .tree-builder-row,
   .tree-builder-actions,
   .chain-row,
