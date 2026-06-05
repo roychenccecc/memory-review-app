@@ -255,6 +255,39 @@ button {
   color: var(--danger);
 }
 
+#studyForm label,
+#mistakeForm label,
+#studyForm input,
+#mistakeForm input,
+#studyForm select,
+#mistakeForm select,
+#studyForm textarea,
+#mistakeForm textarea,
+#studyForm button,
+#mistakeForm button,
+#studyForm .tag-field-hint,
+#mistakeForm .tag-field-hint,
+#studyForm .tag-tool-hint,
+#mistakeForm .tag-tool-hint,
+#studyForm .knowledge-picker-head span,
+#mistakeForm .knowledge-picker-head span,
+#studyForm .knowledge-picker-current,
+#mistakeForm .knowledge-picker-current,
+#studyForm .picker-node-main,
+#mistakeForm .picker-node-main,
+#studyForm .picker-node-main span,
+#mistakeForm .picker-node-main span,
+#studyForm .selected-tag,
+#mistakeForm .selected-tag,
+#studyForm .simple-tag-choice button,
+#mistakeForm .simple-tag-choice button,
+#studyForm .tree-parent-hint,
+#mistakeForm .tree-parent-hint,
+#studyForm .level-index,
+#mistakeForm .level-index {
+  font-size: 13px;
+}
+
 .tag-create-area {
   display: grid;
   gap: 12px;
