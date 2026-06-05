@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>自适应复习与错题管理器</title>
-    <link rel="stylesheet" href="styles.css?v=20260603-reviewed-record" />
+    <link rel="stylesheet" href="styles.css?v=20260605-tree-picker" />
   </head>
   <body>
     <div class="app-shell">
@@ -212,21 +212,34 @@
         <p class="muted tag-field-hint">知识点请从下方树状选择；这里仅用于题型、分类等普通标签。</p>
         <div class="simple-tag-choices" id="studySimpleTagChoices"></div>
         <div class="selected-tags" id="studySelectedTags"></div>
-        <div class="inline-tool tag-manage-tool">
-          <label>
-            从已有知识点选择
-            <select id="studyExistingTagSelect" class="existing-tag-select">
-              <option value="">选择一个知识点</option>
-            </select>
-          </label>
-          <button class="secondary" id="addExistingStudyTagBtn" type="button">添加到学习</button>
-          <button class="secondary danger" id="deleteExistingStudyTagBtn" type="button">删除此知识点</button>
+        <div class="knowledge-picker-panel">
+          <div class="knowledge-picker-head">
+            <h4>从已有知识点选择</h4>
+            <span>搜索后点击节点，可直接设为添加位置</span>
+          </div>
+          <div class="knowledge-picker-tools">
+            <input id="studyTagPickerSearch" autocomplete="off" placeholder="搜索知识点、路径" />
+            <button class="secondary" id="clearStudyTagPickerSearchBtn" type="button">清空</button>
+            <button class="secondary" id="expandStudyTagPickerBtn" type="button">展开</button>
+            <button class="secondary" id="collapseStudyTagPickerBtn" type="button">收起</button>
+          </div>
+          <div class="knowledge-picker-current" id="studyTagPickerCurrent">尚未选择知识点</div>
+          <div class="knowledge-picker-tree" id="studyExistingTagTree"></div>
+          <div class="knowledge-picker-actions">
+            <button class="secondary" id="addExistingStudyTagBtn" type="button">添加到学习</button>
+            <button class="secondary" id="setStudyTreeParentBtn" type="button">设为添加位置</button>
+            <button class="secondary danger" id="deleteExistingStudyTagBtn" type="button">删除此知识点</button>
+          </div>
         </div>
         <div class="tag-create-area">
           <section class="tag-create-panel">
             <div class="tag-create-head">
               <h4>树状添加</h4>
               <span>可输入，也可从已有分支选择</span>
+            </div>
+            <div class="tree-parent-hint" id="studyTreeParentHint">
+              <span>添加位置：无上级</span>
+              <button class="small-button" id="clearStudyTreeParentBtn" type="button">清除位置</button>
             </div>
             <div class="tree-builder" id="studyTreeBuilder"></div>
             <div class="tree-builder-actions">
@@ -239,7 +252,7 @@
               </select>
               <button class="primary" id="createStudyTreeTagBtn" type="button">新建整条树并选中</button>
             </div>
-            <p class="muted tag-tool-hint">例如第一格选“数学 > 数字”，点＋后写“奇数”；也可以第一格直接写“数学-数字-1”。每一级右侧都能删除。</p>
+            <p class="muted tag-tool-hint">可先在上方搜索并点击父级位置，再在这里写新小节；也可以直接写“数学-数字-1”。每一级右侧都能删除。</p>
           </section>
         </div>
         <label>
@@ -288,21 +301,34 @@
         <p class="muted tag-field-hint">知识点请从下方树状选择；这里仅用于题型、错因分类等普通标签。</p>
         <div class="simple-tag-choices" id="mistakeSimpleTagChoices"></div>
         <div class="selected-tags" id="mistakeSelectedTags"></div>
-        <div class="inline-tool">
-          <label>
-            从已有知识点选择
-            <select id="mistakeExistingTagSelect" class="existing-tag-select">
-              <option value="">选择一个知识点</option>
-            </select>
-          </label>
-          <button class="secondary" id="addExistingMistakeTagBtn" type="button">添加到错题</button>
-          <button class="secondary danger" id="deleteExistingMistakeTagBtn" type="button">删除此知识点</button>
+        <div class="knowledge-picker-panel">
+          <div class="knowledge-picker-head">
+            <h4>从已有知识点选择</h4>
+            <span>搜索后点击节点，可直接设为添加位置</span>
+          </div>
+          <div class="knowledge-picker-tools">
+            <input id="mistakeTagPickerSearch" autocomplete="off" placeholder="搜索知识点、路径" />
+            <button class="secondary" id="clearMistakeTagPickerSearchBtn" type="button">清空</button>
+            <button class="secondary" id="expandMistakeTagPickerBtn" type="button">展开</button>
+            <button class="secondary" id="collapseMistakeTagPickerBtn" type="button">收起</button>
+          </div>
+          <div class="knowledge-picker-current" id="mistakeTagPickerCurrent">尚未选择知识点</div>
+          <div class="knowledge-picker-tree" id="mistakeExistingTagTree"></div>
+          <div class="knowledge-picker-actions">
+            <button class="secondary" id="addExistingMistakeTagBtn" type="button">添加到错题</button>
+            <button class="secondary" id="setMistakeTreeParentBtn" type="button">设为添加位置</button>
+            <button class="secondary danger" id="deleteExistingMistakeTagBtn" type="button">删除此知识点</button>
+          </div>
         </div>
         <div class="tag-create-area">
           <section class="tag-create-panel">
             <div class="tag-create-head">
               <h4>树状添加</h4>
               <span>可输入，也可从已有分支选择</span>
+            </div>
+            <div class="tree-parent-hint" id="mistakeTreeParentHint">
+              <span>添加位置：无上级</span>
+              <button class="small-button" id="clearMistakeTreeParentBtn" type="button">清除位置</button>
             </div>
             <div class="tree-builder" id="mistakeTreeBuilder"></div>
             <div class="tree-builder-actions">
@@ -315,7 +341,7 @@
               </select>
               <button class="primary" id="createMistakeTreeTagBtn" type="button">新建整条树并选中</button>
             </div>
-            <p class="muted tag-tool-hint">例如第一格选“心理统计学”，点＋后写“方差分析”；也可以第一格直接写“数学-数字-1”。每一级右侧都能删除。</p>
+            <p class="muted tag-tool-hint">可先在上方搜索并点击父级位置，再在这里写新小节；也可以直接写“数学-数字-1”。每一级右侧都能删除。</p>
           </section>
         </div>
         <label>
@@ -589,6 +615,6 @@
 
     <datalist id="tagOptions"></datalist>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="app.tag-selector-tree.js?v=20260603-reviewed-record"></script>
+    <script src="app.tag-selector-tree.js?v=20260605-tree-picker"></script>
   </body>
 </html>
