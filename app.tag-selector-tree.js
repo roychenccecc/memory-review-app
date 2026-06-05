@@ -21,6 +21,9 @@ let tagMapZoom = 1;
 let tagGestureStartZoom = 1;
 let activeMistakeTagFilterId = "";
 let activeTagDetailId = "";
+let selectedPickerTagIds = { study: "", mistake: "" };
+let selectedTreeParentIds = { study: "", mistake: "" };
+let tagPickerCollapsedIds = { study: new Set(), mistake: new Set() };
 let state = {
   settings: {
     id: "main",
@@ -185,9 +188,21 @@ function bindEvents() {
   document.getElementById("addMistakeTreeLevelBtn").addEventListener("click", () => addMistakeTreeLevel());
   document.getElementById("createMistakeTreeTagBtn").addEventListener("click", createMistakeTreeTag);
   document.getElementById("addExistingStudyTagBtn").addEventListener("click", addExistingStudyTag);
-  document.getElementById("deleteExistingStudyTagBtn").addEventListener("click", () => deleteExistingTagFromSelect("studyExistingTagSelect"));
+  document.getElementById("deleteExistingStudyTagBtn").addEventListener("click", () => deleteExistingTagFromSelect("study"));
+  document.getElementById("setStudyTreeParentBtn").addEventListener("click", () => setTreeParentFromSelected("study"));
+  document.getElementById("clearStudyTagPickerSearchBtn").addEventListener("click", () => clearTagPickerSearch("study"));
+  document.getElementById("expandStudyTagPickerBtn").addEventListener("click", () => expandTagPicker("study"));
+  document.getElementById("collapseStudyTagPickerBtn").addEventListener("click", () => collapseTagPicker("study"));
+  document.getElementById("clearStudyTreeParentBtn").addEventListener("click", () => clearTreeParent("study"));
+  document.getElementById("studyTagPickerSearch").addEventListener("input", () => renderTagPicker("study"));
   document.getElementById("addExistingMistakeTagBtn").addEventListener("click", addExistingMistakeTag);
-  document.getElementById("deleteExistingMistakeTagBtn").addEventListener("click", () => deleteExistingTagFromSelect("mistakeExistingTagSelect"));
+  document.getElementById("deleteExistingMistakeTagBtn").addEventListener("click", () => deleteExistingTagFromSelect("mistake"));
+  document.getElementById("setMistakeTreeParentBtn").addEventListener("click", () => setTreeParentFromSelected("mistake"));
+  document.getElementById("clearMistakeTagPickerSearchBtn").addEventListener("click", () => clearTagPickerSearch("mistake"));
+  document.getElementById("expandMistakeTagPickerBtn").addEventListener("click", () => expandTagPicker("mistake"));
+  document.getElementById("collapseMistakeTagPickerBtn").addEventListener("click", () => collapseTagPicker("mistake"));
+  document.getElementById("clearMistakeTreeParentBtn").addEventListener("click", () => clearTreeParent("mistake"));
+  document.getElementById("mistakeTagPickerSearch").addEventListener("input", () => renderTagPicker("mistake"));
   document.getElementById("deleteSelectedTagBtn").addEventListener("click", deleteSelectedTag);
   document.getElementById("addTagChainBtn").addEventListener("click", addTagChain);
   document.getElementById("continueTagBranchBtn").addEventListener("click", continueTagBranch);
@@ -1068,25 +1083,66 @@ function renderTagParentOptions() {
 }
 
 function renderExistingTagSelectors() {
-  const options = [
-    '<option value="">选择一个知识点</option>',
-    ...uniqueTagTreeRows()
-      .map(({ tag, depth }) => `<option value="${escapeHtml(tag.id)}">${escapeHtml(treeOptionLabel(tag, depth))}</option>`),
-  ].join("");
-  document.querySelectorAll(".existing-tag-select").forEach((select) => {
-    const previous = select.value;
-    select.innerHTML = options;
-    const previousId = tagIdFromSelectValue(previous);
-    if ([...select.options].some((option) => option.value === previousId)) select.value = previousId;
-  });
+  renderTagPicker("study");
+  renderTagPicker("mistake");
 }
 
-function treeBranchOptions() {
-  return [
-    '<option value="">选择已有分支</option>',
-    ...uniqueTagTreeRows()
-      .map(({ tag, depth }) => `<option value="${escapeHtml(tag.id)}">${escapeHtml(treeOptionLabel(tag, depth))}</option>`),
-  ].join("");
+function renderTagPicker(kind) {
+  const tree = document.getElementById(`${kind}ExistingTagTree`);
+  const current = document.getElementById(`${kind}TagPickerCurrent`);
+  if (!tree || !current) return;
+  const selected = state.tags.find((tag) => tag.id === selectedPickerTagIds[kind]);
+  current.innerHTML = selected
+    ? `已选择：<strong>${escapeHtml(tagPath(selected))}</strong>`
+    : "尚未选择知识点";
+  const query = document.getElementById(`${kind}TagPickerSearch`)?.value.trim().toLowerCase() || "";
+  const roots = uniqueTagTreeRows().filter(({ depth }) => depth === 0).map(({ tag }) => tag);
+  const visibleIds = query ? visibleTagIdsForQuery(query) : null;
+  const html = roots.map((tag) => renderTagPickerNode(kind, tag, query, visibleIds)).filter(Boolean).join("");
+  tree.innerHTML = state.tags.length ? (html || empty("没有找到匹配的知识点。")) : empty("还没有知识点。");
+  renderTreeParentHint(kind);
+}
+
+function renderTagPickerNode(kind, tag, query = "", visibleIds = null) {
+  if (visibleIds && !visibleIds.has(tag.id)) return "";
+  const children = state.tags
+    .filter((child) => child.parentId === tag.id)
+    .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
+  const childHtml = children.map((child) => renderTagPickerNode(kind, child, query, visibleIds)).filter(Boolean).join("");
+  const hasChildren = children.length > 0;
+  const isCollapsed = tagPickerCollapsedIds[kind]?.has(tag.id) && !query;
+  const selected = selectedPickerTagIds[kind] === tag.id;
+  const parentSelected = selectedTreeParentIds[kind] === tag.id;
+  const match = query && tagMatchesPickerQuery(tag, query);
+  const encodedId = encodeURIComponent(tag.id);
+  return `
+    <div class="knowledge-picker-node ${selected ? "selected" : ""} ${parentSelected ? "parent-selected" : ""}">
+      <div class="knowledge-picker-row">
+        ${hasChildren ? `<button class="picker-toggle" onclick="toggleTagPickerNode('${kind}', decodeURIComponent('${encodedId}'))" type="button" aria-label="${isCollapsed ? "展开" : "收起"}">${isCollapsed ? "+" : "-"}</button>` : '<span class="picker-toggle placeholder"></span>'}
+        <button class="picker-node-main ${match ? "search-hit" : ""}" onclick="selectKnowledgeTag('${kind}', decodeURIComponent('${encodedId}'))" type="button">
+          <span>${escapeHtml(tag.name)}</span>
+          ${parentSelected ? '<em>添加位置</em>' : ""}
+        </button>
+      </div>
+      ${hasChildren && (!isCollapsed || query) && childHtml ? `<div class="knowledge-picker-children">${childHtml}</div>` : ""}
+    </div>
+  `;
+}
+
+function visibleTagIdsForQuery(query) {
+  const ids = new Set();
+  for (const tag of state.tags) {
+    if (!tagMatchesPickerQuery(tag, query)) continue;
+    for (const chainTag of tagAncestorChain(tag).reverse()) ids.add(chainTag.id);
+  }
+  return ids;
+}
+
+function tagMatchesPickerQuery(tag, query) {
+  return [tag.name, tagPath(tag), importanceLabel(tag.importance), ...(tag.questionTypes || [])]
+    .join(" ")
+    .toLowerCase()
+    .includes(query);
 }
 
 function renderDeleteTagSelector() {
@@ -1158,17 +1214,8 @@ function renderTreeBuilder(kind) {
   const builder = document.getElementById(`${kind}TreeBuilder`);
   if (!builder) return;
   if (!builder.children.length) addTreeLevel(kind, "", false);
-  refreshTreeBranchSelectors(kind);
+  renderTreeParentHint(kind);
   updateTreeLevelLabels(kind);
-}
-
-function refreshTreeBranchSelectors(kind) {
-  const options = treeBranchOptions();
-  document.querySelectorAll(`#${kind}TreeBuilder .${kind}-tree-branch-select`).forEach((select) => {
-    const previous = select.value;
-    select.innerHTML = options;
-    if ([...select.options].some((option) => option.value === previous)) select.value = previous;
-  });
 }
 
 function addStudyTreeLevel(value = "", shouldFocus = true) {
@@ -1189,19 +1236,8 @@ function addTreeLevel(kind, value = "", shouldFocus = true) {
   row.innerHTML = `
     <span class="level-index"></span>
     <input class="${kind}-tree-level-input" placeholder="输入本级知识点或完整链条" value="${escapeHtml(value)}" />
-    <select class="${kind}-tree-branch-select tree-branch-select" aria-label="选择已有分支">
-      ${treeBranchOptions()}
-    </select>
     <button class="small-button danger remove-level-button" type="button">删除这级</button>
   `;
-  row.querySelector(`.${kind}-tree-branch-select`).addEventListener("change", (event) => {
-    const tag = state.tags.find((row) => row.id === event.target.value);
-    if (!tag) return;
-    const input = row.querySelector(`.${kind}-tree-level-input`);
-    input.value = tagPath(tag);
-    event.target.value = "";
-    input.focus();
-  });
   row.querySelector(".remove-level-button").addEventListener("click", () => {
     if (builder.children.length === 1) {
       row.querySelector(`.${kind}-tree-level-input`).value = "";
@@ -1385,7 +1421,8 @@ async function createTreeTag({ kind, importanceId, targetSelector, emptyMessage,
     return;
   }
   const importance = document.getElementById(importanceId).value;
-  const tag = await createTagChain(parts, "", importance);
+  const parentId = selectedTreeParentIds[kind] || "";
+  const tag = await createTagChain(parts, parentId, importance);
   appendTagToInput(document.querySelector(targetSelector), tagPath(tag));
   clearTreeBuilder(kind);
   await refreshAfterTagChange();
@@ -1393,49 +1430,101 @@ async function createTreeTag({ kind, importanceId, targetSelector, emptyMessage,
 }
 
 function addExistingStudyTag() {
-  const select = document.getElementById("studyExistingTagSelect");
-  if (!select.value) {
+  const tag = state.tags.find((row) => row.id === selectedPickerTagIds.study);
+  if (!tag) {
     toast("先选择一个已有知识点。");
     return;
   }
-  const tag = state.tags.find((row) => row.id === select.value);
-  if (!tag) {
-    toast("没有找到这个知识点。");
-    return;
-  }
   appendTagToInput(document.querySelector("#studyForm [name='tags']"), tagPath(tag));
-  select.value = "";
   toast("已添加到学习记录。");
 }
 
 function addExistingMistakeTag() {
-  const select = document.getElementById("mistakeExistingTagSelect");
-  if (!select.value) {
+  const tag = state.tags.find((row) => row.id === selectedPickerTagIds.mistake);
+  if (!tag) {
     toast("先选择一个已有知识点。");
     return;
   }
-  const tag = state.tags.find((row) => row.id === select.value);
-  if (!tag) {
-    toast("没有找到这个知识点。");
-    return;
-  }
   appendTagToInput(document.querySelector("#mistakeForm [name='tags']"), tagPath(tag));
-  select.value = "";
   toast("已添加到错题关联知识点。");
 }
 
-async function deleteExistingTagFromSelect(selectId) {
-  const select = document.getElementById(selectId);
-  if (!select.value) {
+function selectKnowledgeTag(kind, tagId) {
+  const tag = state.tags.find((row) => row.id === tagId);
+  if (!tag) return;
+  selectedPickerTagIds[kind] = tag.id;
+  selectedTreeParentIds[kind] = tag.id;
+  renderTagPicker(kind);
+  toast(`已设为添加位置：${tagPath(tag)}`);
+}
+
+function setTreeParentFromSelected(kind) {
+  const tag = state.tags.find((row) => row.id === selectedPickerTagIds[kind]);
+  if (!tag) {
+    toast("先选择一个已有知识点。");
+    return;
+  }
+  selectedTreeParentIds[kind] = tag.id;
+  renderTagPicker(kind);
+  toast(`已设为添加位置：${tagPath(tag)}`);
+}
+
+function clearTreeParent(kind) {
+  selectedTreeParentIds[kind] = "";
+  renderTagPicker(kind);
+}
+
+function renderTreeParentHint(kind) {
+  const hint = document.getElementById(`${kind}TreeParentHint`);
+  if (!hint) return;
+  const tag = state.tags.find((row) => row.id === selectedTreeParentIds[kind]);
+  hint.querySelector("span").innerHTML = tag
+    ? `添加位置：<strong>${escapeHtml(tagPath(tag))}</strong>`
+    : "添加位置：无上级";
+}
+
+function clearTagPickerSearch(kind) {
+  const input = document.getElementById(`${kind}TagPickerSearch`);
+  if (input) input.value = "";
+  renderTagPicker(kind);
+}
+
+function toggleTagPickerNode(kind, tagId) {
+  const set = tagPickerCollapsedIds[kind] || new Set();
+  if (set.has(tagId)) set.delete(tagId);
+  else set.add(tagId);
+  tagPickerCollapsedIds[kind] = set;
+  renderTagPicker(kind);
+}
+
+function expandTagPicker(kind) {
+  tagPickerCollapsedIds[kind] = new Set();
+  renderTagPicker(kind);
+}
+
+function collapseTagPicker(kind) {
+  const parentIds = new Set(state.tags.map((tag) => tag.parentId).filter(Boolean));
+  tagPickerCollapsedIds[kind] = parentIds;
+  renderTagPicker(kind);
+}
+
+function resetTagPicker(kind) {
+  selectedPickerTagIds[kind] = "";
+  selectedTreeParentIds[kind] = "";
+  const input = document.getElementById(`${kind}TagPickerSearch`);
+  if (input) input.value = "";
+  renderTagPicker(kind);
+}
+
+async function deleteExistingTagFromSelect(kind) {
+  const tag = state.tags.find((row) => row.id === selectedPickerTagIds[kind]);
+  if (!tag) {
     toast("先选择要删除的知识点。");
     return;
   }
-  const tag = state.tags.find((row) => row.id === select.value) || findTagByPath(select.value);
-  if (!tag) {
-    toast("没有找到这个知识点。");
-    return;
-  }
   removeTagValueFromOpenForms(tagPath(tag));
+  selectedPickerTagIds[kind] = "";
+  if (selectedTreeParentIds[kind] === tag.id) selectedTreeParentIds[kind] = "";
   await deleteTag(tag.id);
 }
 
@@ -2308,6 +2397,8 @@ function prepareNewStudyForm() {
   setText("studySubmitBtn", "保存");
   setDefaultDates();
   renderSelectedTagChips();
+  clearTreeBuilder("study");
+  resetTagPicker("study");
 }
 
 function prepareNewMistakeForm() {
@@ -2319,6 +2410,8 @@ function prepareNewMistakeForm() {
   setText("mistakeSubmitBtn", "保存");
   clearMistakeImage();
   renderSelectedTagChips();
+  clearTreeBuilder("mistake");
+  resetTagPicker("mistake");
 }
 
 function openEditItem(type, idValue) {
@@ -2348,6 +2441,8 @@ function openEditStudy(idValue) {
   setText("studyModalTitle", "编辑学习记录");
   setText("studySubmitBtn", "保存修改");
   renderSelectedTagChips();
+  clearTreeBuilder("study");
+  resetTagPicker("study");
   openModal("studyModal");
 }
 
@@ -2368,6 +2463,8 @@ function openEditMistake(idValue) {
   setText("mistakeModalTitle", "编辑错题");
   setText("mistakeSubmitBtn", "保存修改");
   renderSelectedTagChips();
+  clearTreeBuilder("mistake");
+  resetTagPicker("mistake");
   openModal("mistakeModal");
 }
 
@@ -3240,6 +3337,8 @@ window.renameTag = renameTag;
 window.removeTagFromField = removeTagFromField;
 window.addSimpleTagChoice = addSimpleTagChoice;
 window.deleteSimpleTagChoice = deleteSimpleTagChoice;
+window.selectKnowledgeTag = selectKnowledgeTag;
+window.toggleTagPickerNode = toggleTagPickerNode;
 window.openTagDetail = openTagDetail;
 window.handleTagDetailKey = handleTagDetailKey;
 window.openStudyRecordFromTagDetail = openStudyRecordFromTagDetail;
