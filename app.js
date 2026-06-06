@@ -426,7 +426,7 @@ function renderStudyTreeView(rows) {
 function renderStudyTagNode(tag, rows, used) {
   const children = state.tags
     .filter((child) => child.parentId === tag.id)
-    .sort((a, b) => tagPath(a).localeCompare(tagPath(b), "zh-CN"));
+    .sort(tagTreeOrderCompare);
   const direct = rows.filter((item) => (item.tagIds || []).includes(tag.id));
   direct.forEach((item) => used.add(item.id));
   const childHtml = children.map((child) => renderStudyTagNode(child, rows, used)).filter(Boolean).join("");
@@ -534,7 +534,7 @@ function renderTags() {
 function renderTagMindNode(tag, query = "", tagScoreCache = new Map()) {
   const children = state.tags
     .filter((child) => child.parentId === tag.id)
-    .sort((a, b) => tagPath(a).localeCompare(tagPath(b), "zh-CN"));
+    .sort(tagTreeOrderCompare);
   const childrenHtml = children.map((child) => renderTagMindNode(child, query, tagScoreCache)).filter(Boolean).join("");
   const isMatch = !query || tagMatchesSearch(tag, query);
   if (query && !isMatch && !childrenHtml) return "";
@@ -1111,7 +1111,7 @@ function renderTagPickerNode(kind, tag, queryTokens = [], visibleIds = null) {
   if (visibleIds && !visibleIds.has(tag.id)) return "";
   const children = state.tags
     .filter((child) => child.parentId === tag.id)
-    .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
+    .sort(tagTreeOrderCompare);
   const childHtml = children.map((child) => renderTagPickerNode(kind, child, queryTokens, visibleIds)).filter(Boolean).join("");
   const hasChildren = children.length > 0;
   const isCollapsed = tagPickerCollapsedIds[kind]?.has(tag.id) && !queryTokens.length;
@@ -3087,12 +3087,12 @@ function tagTreeRows() {
     rows.push({ tag, depth });
     state.tags
       .filter((child) => child.parentId === tag.id)
-      .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"))
+      .sort(tagTreeOrderCompare)
       .forEach((child) => visit(child, depth + 1));
   };
   state.tags
     .filter((tag) => !tag.parentId || !state.tags.some((parent) => parent.id === tag.parentId))
-    .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"))
+    .sort(tagTreeOrderCompare)
     .forEach((tag) => visit(tag, 0));
   return rows;
 }
@@ -3326,6 +3326,15 @@ function taskSort(a, b) {
 
 function byCreated(a, b) {
   return (a.createdAt || "").localeCompare(b.createdAt || "");
+}
+
+function tagTreeOrderCompare(a, b) {
+  const aCreated = a.createdAt || "";
+  const bCreated = b.createdAt || "";
+  if (aCreated && bCreated && aCreated !== bCreated) return aCreated.localeCompare(bCreated);
+  if (aCreated && !bCreated) return 1;
+  if (!aCreated && bCreated) return -1;
+  return (a.name || "").localeCompare(b.name || "", "zh-CN") || (a.id || "").localeCompare(b.id || "");
 }
 
 function byDateDesc(a, b) {
