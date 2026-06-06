@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>自适应复习与错题管理器</title>
-    <link rel="stylesheet" href="styles.css?v=20260605-modal-font-unified" />
+    <link rel="stylesheet" href="styles.css?v=20260606-review-log-edit" />
   </head>
   <body>
     <div class="app-shell">
@@ -498,7 +498,8 @@
               <textarea name="notes" rows="3" placeholder="这次卡在哪里、下次重点看什么"></textarea>
             </label>
             <div class="modal-actions">
-              <button class="primary" type="submit">保存本次记录</button>
+              <button class="secondary" id="resetStudyRecordFormBtn" type="button">新增记录</button>
+              <button class="primary" id="studyRecordSubmitBtn" type="submit">保存本次记录</button>
             </div>
           </form>
         </section>
@@ -537,7 +538,8 @@
               <textarea name="notes" rows="3" placeholder="这次又错在哪里、卡在哪里、下次怎么避免"></textarea>
             </label>
             <div class="modal-actions">
-              <button class="primary" type="submit">保存本次记录</button>
+              <button class="secondary" id="resetMistakeRecordFormBtn" type="button">新增记录</button>
+              <button class="primary" id="mistakeRecordSubmitBtn" type="submit">保存本次记录</button>
             </div>
           </form>
         </section>
@@ -615,6 +617,6 @@
 
     <datalist id="tagOptions"></datalist>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="app.tag-selector-tree.js?v=20260605-modal-font-unified"></script>
+    <script src="app.tag-selector-tree.js?v=20260606-review-log-edit"></script>
   </body>
 </html>
