@@ -154,7 +154,9 @@ function bindEvents() {
   document.getElementById("studyRecordPercentRange").addEventListener("input", syncStudyRecordRecallFromRange);
   document.getElementById("studyRecordPercentInput").addEventListener("input", syncStudyRecordRecallFromInput);
   document.getElementById("studySectionScores").addEventListener("input", syncStudySectionScore);
+  document.getElementById("resetStudyRecordFormBtn").addEventListener("click", resetStudyRecordFormForNewLog);
   document.getElementById("mistakeRecordForm").addEventListener("submit", saveMistakeRecord);
+  document.getElementById("resetMistakeRecordFormBtn").addEventListener("click", resetMistakeRecordFormForNewLog);
   document.getElementById("questionTypeForm").addEventListener("submit", saveQuestionTypes);
   document.getElementById("addQuestionTypeBtn").addEventListener("click", addQuestionType);
   document.getElementById("saveTagDetailBtn").addEventListener("click", saveTagDetail);
@@ -950,6 +952,7 @@ function renderStudyHistoryList(study) {
       ${renderSectionScoreSummary(log.sectionScores)}
       <div class="card-actions">
         <button class="small-button" onclick="openEditReview('${log.id}')">修改记录</button>
+        <button class="small-button danger" onclick="deleteReviewLog('${log.id}')">删除记录</button>
       </div>
     </article>
   `).join("");
@@ -1011,6 +1014,7 @@ function renderMistakeHistoryList(mistake) {
       ${log.notes ? `<p class="body-text">${escapeHtml(log.notes)}</p>` : '<p class="body-text muted">没有填写本次错因。</p>'}
       <div class="card-actions">
         <button class="small-button" onclick="openEditReview('${log.id}')">修改记录</button>
+        <button class="small-button danger" onclick="deleteReviewLog('${log.id}')">删除记录</button>
       </div>
     </article>
   `).join("");
@@ -1683,10 +1687,8 @@ async function saveStudyRecord(event) {
   const form = event.currentTarget;
   const saved = await persistReviewForm(form);
   if (!saved) return;
-  formField(form, "logId").value = "";
-  formField(form, "notes").value = "";
-  setStudyRecordRecallPercent(80);
   const study = findItem("study", saved.sourceId);
+  resetStudyRecordFormForNewLog();
   if (study) document.getElementById("studyRecordHistoryList").innerHTML = renderStudyHistoryList(study);
   toast(saved.updated ? "学习记录已修改。" : `已保存学习记录，记住 ${saved.recallPercent}%。`);
   render();
@@ -1697,13 +1699,73 @@ async function saveMistakeRecord(event) {
   const form = event.currentTarget;
   const saved = await persistReviewForm(form);
   if (!saved) return;
-  formField(form, "logId").value = "";
-  formField(form, "notes").value = "";
-  setMistakeRecordRecallPercent(80);
   const mistake = findItem("mistake", saved.sourceId);
+  resetMistakeRecordFormForNewLog();
   if (mistake) document.getElementById("mistakeRecordHistoryList").innerHTML = renderMistakeHistoryList(mistake);
   toast(saved.updated ? "错题记录已修改。" : `已保存错题记录，记住 ${saved.recallPercent}%。`);
   render();
+}
+
+function resetStudyRecordFormForNewLog() {
+  const form = document.getElementById("studyRecordForm");
+  const study = findItem("study", formField(form, "sourceId").value);
+  formField(form, "logId").value = "";
+  formField(form, "taskId").value = "";
+  formField(form, "notes").value = "";
+  setText("studyRecordSubmitBtn", "保存本次记录");
+  setStudyRecordRecallPercent(80);
+  if (study) {
+    document.getElementById("studySectionScores").innerHTML = renderStudySectionScoreInputs(study);
+    updateStudyRecordAggregateFromSections();
+  }
+}
+
+function resetMistakeRecordFormForNewLog() {
+  const form = document.getElementById("mistakeRecordForm");
+  formField(form, "logId").value = "";
+  formField(form, "taskId").value = "";
+  formField(form, "notes").value = "";
+  setText("mistakeRecordSubmitBtn", "保存本次记录");
+  setMistakeRecordRecallPercent(80);
+}
+
+function loadStudyLogIntoRecordForm(log) {
+  const study = findItem("study", log.sourceId);
+  if (!study) return;
+  const form = document.getElementById("studyRecordForm");
+  formField(form, "sourceType").value = "study";
+  formField(form, "sourceId").value = study.id;
+  formField(form, "taskId").value = log.taskId || "";
+  formField(form, "logId").value = log.id;
+  formField(form, "notes").value = log.notes || "";
+  document.getElementById("studySectionScores").innerHTML = renderStudySectionScoreInputs(study);
+  setStudyRecordRecallPercent(log.recallPercent ?? log.afterScore ?? currentScore(study));
+  applyStudySectionScores(log.sectionScores || [], log.recallPercent ?? log.afterScore ?? currentScore(study));
+  updateStudyRecordAggregateFromSections();
+  setText("studyRecordSubmitBtn", "保存修改");
+}
+
+function loadMistakeLogIntoRecordForm(log) {
+  const mistake = findItem("mistake", log.sourceId);
+  if (!mistake) return;
+  const form = document.getElementById("mistakeRecordForm");
+  formField(form, "sourceType").value = "mistake";
+  formField(form, "sourceId").value = mistake.id;
+  formField(form, "taskId").value = log.taskId || "";
+  formField(form, "logId").value = log.id;
+  formField(form, "notes").value = log.notes || "";
+  setMistakeRecordRecallPercent(log.recallPercent ?? log.afterScore ?? currentScore(mistake));
+  setText("mistakeRecordSubmitBtn", "保存修改");
+}
+
+function applyStudySectionScores(sectionScores = [], fallbackScore = 80) {
+  const scoresByTag = new Map(sectionScores.map((section) => [section.tagId, section.score]));
+  document.querySelectorAll("#studySectionScores .section-score-row").forEach((row) => {
+    const rawScore = scoresByTag.has(row.dataset.tagId) ? scoresByTag.get(row.dataset.tagId) : fallbackScore;
+    const score = clamp(Number(rawScore) || 0, 0, 100);
+    row.querySelector(".section-score-number").value = score;
+    row.querySelector(".section-score-range").value = score;
+  });
 }
 
 async function persistReviewForm(form) {
@@ -1873,6 +1935,66 @@ async function updateReviewLog({ logId, sourceType, sourceId, taskId, recallPerc
     await put("tasks", task);
   }
   await refreshSchedule();
+}
+
+async function deleteReviewLog(logId) {
+  const log = state.logs.find((row) => row.id === logId);
+  if (!log) return;
+  const item = findItem(log.sourceType, log.sourceId);
+  const title = item
+    ? (log.sourceType === "study" ? item.title : item.location || firstLine(item.question) || "未命名错题")
+    : "这条内容";
+  if (!window.confirm(`确定删除“${title}”的这条复习记录吗？删除后会重新计算记忆分。`)) return;
+  await remove("logs", log.id);
+  await loadState();
+  await recomputeItemFromReviewLogs(log.sourceType, log.sourceId);
+  refreshOpenRecordHistory(log.sourceType, log.sourceId);
+  render();
+  toast("复习记录已删除，记忆分已重新计算。");
+}
+
+async function recomputeItemFromReviewLogs(sourceType, sourceId) {
+  const item = findItem(sourceType, sourceId);
+  if (!item) return;
+  const logs = state.logs
+    .filter((log) => log.sourceType === sourceType && log.sourceId === sourceId)
+    .sort((a, b) => (b.createdAt || b.date || "").localeCompare(a.createdAt || a.date || ""));
+  if (logs.length) {
+    const latest = logs[0];
+    item.memoryScore = memoryScoreFromReview(sourceType, sourceId, null);
+    item.lastRecallPercent = Number(latest.recallPercent ?? latest.afterScore ?? item.memoryScore);
+    item.lastReviewedAt = latest.date || latest.createdAt?.slice(0, 10) || item.lastReviewedAt;
+    item.currentIntervalIndex = latest.afterIntervalIndex ?? item.currentIntervalIndex ?? 0;
+    item.currentInterval = latest.afterInterval ?? item.currentInterval ?? BASE_INTERVALS[item.currentIntervalIndex] ?? 1;
+  } else {
+    item.memoryScore = sourceType === "study" ? 70 : 60;
+    item.currentIntervalIndex = 0;
+    item.currentInterval = 1;
+    delete item.lastRecallPercent;
+    delete item.lastReviewedAt;
+  }
+  item.updatedAt = now();
+  await put(sourceType === "study" ? "study" : "mistakes", item);
+  for (const task of state.tasks.filter((row) => row.status === "pending" && row.sourceType === sourceType && row.sourceId === sourceId)) {
+    task.priority = priorityScore(item, Boolean(task.isCram));
+    task.updatedAt = now();
+    await put("tasks", task);
+  }
+  await refreshSchedule();
+  await loadState();
+}
+
+function refreshOpenRecordHistory(sourceType, sourceId) {
+  if (sourceType === "study" && document.getElementById("studyRecordModal").open) {
+    const study = findItem("study", sourceId);
+    if (study) document.getElementById("studyRecordHistoryList").innerHTML = renderStudyHistoryList(study);
+    resetStudyRecordFormForNewLog();
+  }
+  if (sourceType === "mistake" && document.getElementById("mistakeHistoryModal").open) {
+    const mistake = findItem("mistake", sourceId);
+    if (mistake) document.getElementById("mistakeRecordHistoryList").innerHTML = renderMistakeHistoryList(mistake);
+    resetMistakeRecordFormForNewLog();
+  }
 }
 
 async function createNextTask(sourceType, item, fromDate, result = "") {
@@ -2530,21 +2652,15 @@ function openEditReview(logId) {
   if (!log) return;
   const item = findItem(log.sourceType, log.sourceId);
   if (!item) return;
-  const historyModal = document.getElementById("mistakeHistoryModal");
-  if (historyModal?.open) historyModal.close();
-  const studyRecordModal = document.getElementById("studyRecordModal");
-  if (studyRecordModal?.open) studyRecordModal.close();
-  const title = log.sourceType === "study" ? item.title : item.location || firstLine(item.question) || "未命名错题";
-  document.getElementById("reviewModalTitle").textContent = `${log.sourceType === "mistake" ? "修改错因记录" : "修改复习记录"}：${title}`;
-  configureReviewModalForType(log.sourceType);
-  const form = document.getElementById("reviewForm");
-  form.sourceType.value = log.sourceType;
-  form.sourceId.value = log.sourceId;
-  form.taskId.value = log.taskId || "";
-  form.logId.value = log.id;
-  formField(form, "notes").value = log.notes || "";
-  setRecallPercent(log.recallPercent ?? log.afterScore ?? currentScore(item));
-  document.getElementById("reviewModal").showModal();
+  if (log.sourceType === "study") {
+    if (!document.getElementById("studyRecordModal").open) openStudyRecord(log.sourceId);
+    loadStudyLogIntoRecordForm(log);
+    toast("已载入这条学习记录，修改后点“保存修改”。");
+    return;
+  }
+  if (!document.getElementById("mistakeHistoryModal").open) openMistakeRecord(log.sourceId);
+  loadMistakeLogIntoRecordForm(log);
+  toast("已载入这条错题记录，修改后点“保存修改”。");
 }
 
 function syncRecallFromRange(event) {
@@ -3328,6 +3444,7 @@ function toast(message) {
 
 window.openReview = openReview;
 window.openEditReview = openEditReview;
+window.deleteReviewLog = deleteReviewLog;
 window.openEditItem = openEditItem;
 window.postponeTask = postponeTask;
 window.deleteItem = deleteItem;
