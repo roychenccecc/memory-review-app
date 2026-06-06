@@ -1099,25 +1099,25 @@ function renderTagPicker(kind) {
   current.innerHTML = selected
     ? `已选择：<strong>${escapeHtml(tagPath(selected))}</strong>`
     : "尚未选择知识点";
-  const query = document.getElementById(`${kind}TagPickerSearch`)?.value.trim().toLowerCase() || "";
+  const queryTokens = pickerSearchTokens(document.getElementById(`${kind}TagPickerSearch`)?.value || "");
   const roots = uniqueTagTreeRows().filter(({ depth }) => depth === 0).map(({ tag }) => tag);
-  const visibleIds = query ? visibleTagIdsForQuery(query) : null;
-  const html = roots.map((tag) => renderTagPickerNode(kind, tag, query, visibleIds)).filter(Boolean).join("");
+  const visibleIds = queryTokens.length ? visibleTagIdsForQuery(queryTokens) : null;
+  const html = roots.map((tag) => renderTagPickerNode(kind, tag, queryTokens, visibleIds)).filter(Boolean).join("");
   tree.innerHTML = state.tags.length ? (html || empty("没有找到匹配的知识点。")) : empty("还没有知识点。");
   renderTreeParentHint(kind);
 }
 
-function renderTagPickerNode(kind, tag, query = "", visibleIds = null) {
+function renderTagPickerNode(kind, tag, queryTokens = [], visibleIds = null) {
   if (visibleIds && !visibleIds.has(tag.id)) return "";
   const children = state.tags
     .filter((child) => child.parentId === tag.id)
     .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
-  const childHtml = children.map((child) => renderTagPickerNode(kind, child, query, visibleIds)).filter(Boolean).join("");
+  const childHtml = children.map((child) => renderTagPickerNode(kind, child, queryTokens, visibleIds)).filter(Boolean).join("");
   const hasChildren = children.length > 0;
-  const isCollapsed = tagPickerCollapsedIds[kind]?.has(tag.id) && !query;
+  const isCollapsed = tagPickerCollapsedIds[kind]?.has(tag.id) && !queryTokens.length;
   const selected = selectedPickerTagIds[kind] === tag.id;
   const parentSelected = selectedTreeParentIds[kind] === tag.id;
-  const match = query && tagMatchesPickerQuery(tag, query);
+  const match = queryTokens.length && tagMatchesPickerQuery(tag, queryTokens);
   const encodedId = encodeURIComponent(tag.id);
   return `
     <div class="knowledge-picker-node ${selected ? "selected" : ""} ${parentSelected ? "parent-selected" : ""}">
@@ -1133,20 +1133,30 @@ function renderTagPickerNode(kind, tag, query = "", visibleIds = null) {
   `;
 }
 
-function visibleTagIdsForQuery(query) {
+function visibleTagIdsForQuery(queryTokens) {
   const ids = new Set();
   for (const tag of state.tags) {
-    if (!tagMatchesPickerQuery(tag, query)) continue;
+    if (!tagMatchesPickerQuery(tag, queryTokens)) continue;
     for (const chainTag of tagAncestorChain(tag).reverse()) ids.add(chainTag.id);
   }
   return ids;
 }
 
-function tagMatchesPickerQuery(tag, query) {
-  return [tag.name, tagPath(tag), importanceLabel(tag.importance), ...(tag.questionTypes || [])]
-    .join(" ")
+function tagMatchesPickerQuery(tag, queryTokens) {
+  const text = normalizePickerSearchText([tag.name, tagPath(tag), importanceLabel(tag.importance), ...(tag.questionTypes || [])].join(" "));
+  return queryTokens.every((token) => text.includes(token));
+}
+
+function pickerSearchTokens(value) {
+  return normalizePickerSearchText(value).split(" ").filter(Boolean);
+}
+
+function normalizePickerSearchText(value) {
+  return String(value || "")
     .toLowerCase()
-    .includes(query);
+    .replace(/[>＞→/\\\-_,，、;；:：|｜()[\]（）【】{}《》]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function renderDeleteTagSelector() {
