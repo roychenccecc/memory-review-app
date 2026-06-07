@@ -1137,7 +1137,7 @@ function visibleTagIdsForQuery(queryTokens) {
   const ids = new Set();
   for (const tag of state.tags) {
     if (!tagMatchesPickerQuery(tag, queryTokens)) continue;
-    for (const chainTag of tagAncestorChain(tag).reverse()) ids.add(chainTag.id);
+    for (const chainTag of tagWithAncestors(tag).reverse()) ids.add(chainTag.id);
   }
   return ids;
 }
