@@ -1517,17 +1517,21 @@ function expandTagPicker(kind) {
 }
 
 function collapseTagPicker(kind) {
-  const parentIds = new Set(state.tags.map((tag) => tag.parentId).filter(Boolean));
-  tagPickerCollapsedIds[kind] = parentIds;
+  tagPickerCollapsedIds[kind] = allExpandableTagIds();
   renderTagPicker(kind);
 }
 
 function resetTagPicker(kind) {
   selectedPickerTagIds[kind] = "";
   selectedTreeParentIds[kind] = "";
+  tagPickerCollapsedIds[kind] = allExpandableTagIds();
   const input = document.getElementById(`${kind}TagPickerSearch`);
   if (input) input.value = "";
   renderTagPicker(kind);
+}
+
+function allExpandableTagIds() {
+  return new Set(state.tags.map((tag) => tag.parentId).filter(Boolean));
 }
 
 async function deleteExistingTagFromSelect(kind) {
