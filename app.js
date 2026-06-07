@@ -1128,7 +1128,7 @@ function renderTagPickerNode(kind, tag, queryTokens = [], visibleIds = null) {
           ${parentSelected ? '<em>添加位置</em>' : ""}
         </button>
       </div>
-      ${hasChildren && (!isCollapsed || query) && childHtml ? `<div class="knowledge-picker-children">${childHtml}</div>` : ""}
+      ${hasChildren && (!isCollapsed || queryTokens.length) && childHtml ? `<div class="knowledge-picker-children">${childHtml}</div>` : ""}
     </div>
   `;
 }
