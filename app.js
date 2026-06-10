@@ -425,7 +425,7 @@ function renderStudyTreeView(rows) {
 
 function renderStudyTagNode(tag, rows, used) {
   const children = state.tags
-    .filter((child) => child.parentId === tag.id)
+    .filter((child) => child.parentId === tag.id && isKnowledgeTag(child))
     .sort(tagTreeOrderCompare);
   const direct = rows.filter((item) => (item.tagIds || []).includes(tag.id));
   direct.forEach((item) => used.add(item.id));
@@ -533,7 +533,7 @@ function renderTags() {
 
 function renderTagMindNode(tag, query = "", tagScoreCache = new Map()) {
   const children = state.tags
-    .filter((child) => child.parentId === tag.id)
+    .filter((child) => child.parentId === tag.id && isKnowledgeTag(child))
     .sort(tagTreeOrderCompare);
   const childrenHtml = children.map((child) => renderTagMindNode(child, query, tagScoreCache)).filter(Boolean).join("");
   const isMatch = !query || tagMatchesSearch(tag, query);
@@ -904,7 +904,7 @@ function studySectionTags(study) {
 }
 
 function isTreeKnowledgeTag(tag) {
-  return Boolean(tag?.parentId) || state.tags.some((child) => child.parentId === tag?.id);
+  return isKnowledgeTag(tag);
 }
 
 function latestStudySectionScore(studyId, tagId) {
@@ -1044,7 +1044,7 @@ function renderMistakeTagFilterBar(tag) {
 
 function renderWeakTags() {
   const tagScoreCache = new Map();
-  const summaries = state.tags.map((tag) => {
+  const summaries = state.tags.filter(isKnowledgeTag).map((tag) => {
     const descendantIds = descendantTagIds(tag.id);
     const linked = getAllItems().filter((item) => (item.tagIds || []).some((tagId) => descendantIds.includes(tagId)));
     if (!linked.length) return null;
@@ -1194,9 +1194,8 @@ function renderSimpleTagChoices() {
 }
 
 function simpleTagChoices() {
-  const parentIds = new Set(state.tags.map((tag) => tag.parentId).filter(Boolean));
   return state.tags
-    .filter((tag) => !tag.parentId && !parentIds.has(tag.id))
+    .filter(isSimpleTag)
     .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
 }
 
@@ -1380,7 +1379,7 @@ async function addManualSimpleTags(kind) {
     return;
   }
   for (const name of names) {
-    const tag = await createOrUpdateTag({ name, parentId: "", importance: "medium" });
+    const tag = await createOrUpdateTag({ name, parentId: "", importance: "medium", tagType: "simple" });
     appendTagToInput(target, tag.name);
   }
   input.value = "";
@@ -1659,6 +1658,7 @@ async function saveTag(event) {
       parentId,
       color: data.get("color"),
       importance: data.get("importance"),
+      tagType: "knowledge",
     });
   lastChainTagId = savedTag.id;
   await loadState();
@@ -2501,6 +2501,19 @@ function isStandaloneTagName(name) {
   return /(题|考点|重点|难点|易错|高频|低频|简答|选择|填空|判断|计算|论述|名词|案例|材料|公式)$/.test(name);
 }
 
+function isSimpleTag(tag) {
+  if (!tag) return false;
+  if (tag.tagType === "simple") return true;
+  if (tag.tagType === "knowledge") return false;
+  if (tag.parentId) return false;
+  if (state.tags.some((child) => child.parentId === tag.id)) return false;
+  return isStandaloneTagName(tag.name) || ["研究领域", "学科性质", "选择题", "简答题", "综合题", "计算题"].includes(tag.name);
+}
+
+function isKnowledgeTag(tag) {
+  return Boolean(tag) && !isSimpleTag(tag);
+}
+
 function tagsWereCreatedTogether(firstTag, secondTag) {
   const firstTime = Date.parse(firstTag.createdAt || firstTag.updatedAt || "");
   const secondTime = Date.parse(secondTag.createdAt || secondTag.updatedAt || "");
@@ -2532,9 +2545,14 @@ async function ensureTagPath(rawName) {
   let parentId = "";
   let tag;
   for (const part of parts) {
-    tag = state.tags.find((row) => row.name === part && (row.parentId || "") === parentId);
+    tag = state.tags.find((row) => row.name === part && (row.parentId || "") === parentId && (parts.length === 1 || isKnowledgeTag(row)));
     if (!tag) {
-      tag = await createOrUpdateTag({ name: part, parentId, importance: "medium" });
+      tag = await createOrUpdateTag({
+        name: part,
+        parentId,
+        importance: "medium",
+        tagType: parts.length === 1 ? "simple" : "knowledge",
+      });
       state.tags.push(tag);
     }
     parentId = tag.id;
@@ -2542,10 +2560,16 @@ async function ensureTagPath(rawName) {
   return tag;
 }
 
-async function createOrUpdateTag({ name, parentId = "", importance = "medium", color = "" }) {
+async function createOrUpdateTag({ name, parentId = "", importance = "medium", color = "", tagType = "" }) {
   const cleanName = name.trim();
   const cleanParentId = parentId || "";
-  let tag = state.tags.find((row) => row.name === cleanName && (row.parentId || "") === cleanParentId);
+  const cleanTagType = tagType || (cleanParentId ? "knowledge" : "");
+  let tag = state.tags.find((row) => {
+    if (row.name !== cleanName || (row.parentId || "") !== cleanParentId) return false;
+    if (cleanTagType === "simple") return isSimpleTag(row);
+    if (cleanTagType === "knowledge") return isKnowledgeTag(row);
+    return true;
+  });
   if (!tag) {
     tag = {
       id: id("tag"),
@@ -2553,6 +2577,7 @@ async function createOrUpdateTag({ name, parentId = "", importance = "medium", c
       parentId: cleanParentId,
       color: color || randomTagColor(cleanName),
       importance,
+      ...(cleanTagType ? { tagType: cleanTagType } : {}),
       createdAt: now(),
       updatedAt: now(),
     };
@@ -2560,6 +2585,7 @@ async function createOrUpdateTag({ name, parentId = "", importance = "medium", c
     tag = { ...tag };
     tag.parentId = cleanParentId;
     tag.importance = importance || tag.importance || "medium";
+    if (cleanTagType) tag.tagType = cleanTagType;
     if (color) tag.color = color;
     tag.updatedAt = now();
   }
@@ -2576,6 +2602,7 @@ async function createTagChain(parts, parentId = "", importance = "medium", color
       parentId: currentParentId,
       importance,
       color: tag ? "" : color,
+      tagType: "knowledge",
     });
     const index = state.tags.findIndex((row) => row.id === tag.id);
     if (index >= 0) state.tags[index] = tag;
@@ -3150,12 +3177,12 @@ function tagTreeRows() {
   const visit = (tag, depth) => {
     rows.push({ tag, depth });
     state.tags
-      .filter((child) => child.parentId === tag.id)
+      .filter((child) => child.parentId === tag.id && isKnowledgeTag(child))
       .sort(tagTreeOrderCompare)
       .forEach((child) => visit(child, depth + 1));
   };
   state.tags
-    .filter((tag) => !tag.parentId || !state.tags.some((parent) => parent.id === tag.parentId))
+    .filter((tag) => isKnowledgeTag(tag) && (!tag.parentId || !state.tags.some((parent) => parent.id === tag.parentId && isKnowledgeTag(parent))))
     .sort(tagTreeOrderCompare)
     .forEach((tag) => visit(tag, 0));
   return rows;
@@ -3290,7 +3317,7 @@ function descendantTagIds(tagId) {
   while (changed) {
     changed = false;
     for (const tag of state.tags) {
-      if (tag.parentId && ids.has(tag.parentId) && !ids.has(tag.id)) {
+      if (isKnowledgeTag(tag) && tag.parentId && ids.has(tag.parentId) && !ids.has(tag.id)) {
         ids.add(tag.id);
         changed = true;
       }
@@ -3307,7 +3334,7 @@ function tagMemorySummary(tag, cache = new Map()) {
   if (!tag) return { score: null, mistakeCount: 0 };
   if (cache.has(tag.id)) return cache.get(tag.id);
 
-  const children = state.tags.filter((child) => child.parentId === tag.id);
+  const children = state.tags.filter((child) => child.parentId === tag.id && isKnowledgeTag(child));
   let summary = { score: null, mistakeCount: 0 };
   if (children.length) {
     let weightedTotal = 0;
