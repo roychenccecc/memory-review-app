@@ -2017,8 +2017,13 @@ async function createNextTask(sourceType, item, fromDate, result = "") {
   const earliestDate = capAtExam(addDays(fromDate, interval));
   if (!earliestDate) return;
   const priority = priorityScore(item, false);
-  await put("tasks", {
-    id: id("task"),
+  const existingTasks = state.tasks
+    .filter((task) => task.status === "pending" && !task.isCram && task.sourceType === sourceType && task.sourceId === item.id)
+    .sort((a, b) => pendingTaskKeepSort(a, b));
+  const existing = existingTasks[0];
+  const taskValue = {
+    ...(existing || {}),
+    id: existing?.id || id("task"),
     sourceType,
     sourceId: item.id,
     earliestDate,
@@ -2028,12 +2033,17 @@ async function createNextTask(sourceType, item, fromDate, result = "") {
     isCram: false,
     intervalDays: interval,
     createdByResult: result,
-    createdAt: now(),
-  });
+    createdAt: existing?.createdAt || now(),
+    updatedAt: now(),
+  };
+  await put("tasks", taskValue);
+  for (const task of existingTasks.slice(1)) {
+    await remove("tasks", task.id);
+  }
 }
 
 function buildDisplayTasks() {
-  const pending = state.tasks
+  const pending = dedupeTaskListBySource(state.tasks
     .filter((task) => task.status === "pending" && findItem(task.sourceType, task.sourceId))
     .map((task) => {
       const item = findItem(task.sourceType, task.sourceId);
@@ -2042,7 +2052,7 @@ function buildDisplayTasks() {
         earliestDate: task.earliestDate || task.scheduledDate,
         priority: priorityScore(item, Boolean(task.isCram)),
       };
-    });
+    }));
   for (const cramTask of buildCramTasks()) {
     const existing = pending.find((task) => task.sourceType === cramTask.sourceType && task.sourceId === cramTask.sourceId);
     if (existing) {
@@ -2094,6 +2104,31 @@ function taskQueueSort(a, b) {
   return (b.priority || 0) - (a.priority || 0);
 }
 
+function dedupeTaskListBySource(tasks) {
+  const groups = new Map();
+  for (const task of tasks) {
+    if (task.isCram) {
+      groups.set(task.id, [task]);
+      continue;
+    }
+    const key = taskSourceKey(task);
+    groups.set(key, [...(groups.get(key) || []), task]);
+  }
+  return [...groups.values()].map((group) => group.sort((a, b) => pendingTaskKeepSort(a, b))[0]);
+}
+
+function pendingTaskKeepSort(a, b) {
+  const aDate = a.earliestDate || a.scheduledDate || "";
+  const bDate = b.earliestDate || b.scheduledDate || "";
+  if (aDate !== bDate) return aDate.localeCompare(bDate);
+  if ((a.priority || 0) !== (b.priority || 0)) return (b.priority || 0) - (a.priority || 0);
+  return (b.createdAt || "").localeCompare(a.createdAt || "");
+}
+
+function taskSourceKey(task) {
+  return `${task.sourceType}:${task.sourceId}`;
+}
+
 function dailyReviewLimit() {
   return clamp(Number(state.settings.dailyReviewLimit) || 6, 1, 80);
 }
@@ -2102,8 +2137,33 @@ async function refreshSchedule() {
   await loadState();
   await migratePendingTaskEarliestDates();
   await loadState();
+  await dedupePendingReviewTasks();
+  await loadState();
   await rebalanceReviewQueue();
   await loadState();
+}
+
+async function dedupePendingReviewTasks() {
+  const groups = new Map();
+  state.tasks
+    .filter((task) => task.status === "pending" && !task.isCram && findItem(task.sourceType, task.sourceId))
+    .forEach((task) => {
+      const key = taskSourceKey(task);
+      groups.set(key, [...(groups.get(key) || []), task]);
+    });
+  for (const tasks of groups.values()) {
+    if (tasks.length <= 1) continue;
+    const [keep, ...duplicates] = tasks.sort((a, b) => pendingTaskKeepSort(a, b));
+    const item = findItem(keep.sourceType, keep.sourceId);
+    await put("tasks", {
+      ...keep,
+      priority: item ? priorityScore(item, false) : keep.priority,
+      updatedAt: now(),
+    });
+    for (const task of duplicates) {
+      await remove("tasks", task.id);
+    }
+  }
 }
 
 async function migratePendingTaskEarliestDates() {
