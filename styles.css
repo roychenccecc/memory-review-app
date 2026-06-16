@@ -202,9 +202,43 @@ button {
 
 .selected-tags {
   display: flex;
+  flex-direction: column;
   flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
+}
+
+.selected-tag-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.selected-tag-importance-list {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.selected-tag-importance-list strong {
+  font-size: 13px;
+}
+
+.selected-tag-importance-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 132px;
+  gap: 10px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.selected-tag-importance-row span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .manual-tag-entry {
