@@ -154,6 +154,7 @@ function bindEvents() {
   document.getElementById("studyRecordPercentRange").addEventListener("input", syncStudyRecordRecallFromRange);
   document.getElementById("studyRecordPercentInput").addEventListener("input", syncStudyRecordRecallFromInput);
   document.getElementById("studySectionScores").addEventListener("input", syncStudySectionScore);
+  document.getElementById("studySectionScores").addEventListener("change", syncStudySectionScore);
   document.getElementById("resetStudyRecordFormBtn").addEventListener("click", resetStudyRecordFormForNewLog);
   document.getElementById("mistakeRecordForm").addEventListener("submit", saveMistakeRecord);
   document.getElementById("resetMistakeRecordFormBtn").addEventListener("click", resetMistakeRecordFormForNewLog);
