@@ -1206,14 +1206,47 @@ function renderSelectedTagChipsFor(inputSelector, containerId) {
   if (!input || !container) return;
   const tags = uniqueTagNames(parseTags(input.value));
   if (input.value !== tags.join("，")) input.value = tags.join("，");
+  const knowledgeTags = tags
+    .map((tagName) => findTagByPath(tagName))
+    .filter(isKnowledgeTag);
   container.innerHTML = tags.length
-    ? tags.map((tag) => `
-      <span class="selected-tag">
-        ${escapeHtml(tag)}
-        <button type="button" aria-label="移除 ${escapeHtml(tag)}" onclick="removeTagFromField('${containerId}', decodeURIComponent('${encodeURIComponent(tag)}'))">×</button>
-      </span>
-    `).join("")
+    ? `
+      <div class="selected-tag-chips">
+        ${tags.map((tag) => `
+          <span class="selected-tag">
+            ${escapeHtml(tag)}
+            <button type="button" aria-label="移除 ${escapeHtml(tag)}" onclick="removeTagFromField('${containerId}', decodeURIComponent('${encodeURIComponent(tag)}'))">×</button>
+          </span>
+        `).join("")}
+      </div>
+      ${knowledgeTags.length ? `
+        <div class="selected-tag-importance-list">
+          <strong>已选知识点重要性</strong>
+          ${knowledgeTags.map((tag) => `
+            <label class="selected-tag-importance-row">
+              <span>${escapeHtml(tagPath(tag))}</span>
+              <select onchange="updateSelectedTagImportance('${tag.id}', this.value)">
+                ${importanceOptions(tag.importance)}
+              </select>
+            </label>
+          `).join("")}
+        </div>
+      ` : ""}
+    `
     : '<span class="muted">尚未添加标签</span>';
+}
+
+async function updateSelectedTagImportance(tagId, importance) {
+  const tag = state.tags.find((row) => row.id === tagId);
+  if (!tag || !isKnowledgeTag(tag)) return;
+  tag.importance = importance || "medium";
+  tag.updatedAt = now();
+  await put("tags", tag);
+  await loadState();
+  renderSelectedTagChips();
+  renderTags();
+  renderDashboard();
+  toast("知识点重要性已更新。");
 }
 
 function renderStudyTreeBuilder() {
@@ -3563,6 +3596,7 @@ window.deleteTag = deleteTag;
 window.deleteSelectedTag = deleteSelectedTag;
 window.renameTag = renameTag;
 window.removeTagFromField = removeTagFromField;
+window.updateSelectedTagImportance = updateSelectedTagImportance;
 window.addSimpleTagChoice = addSimpleTagChoice;
 window.deleteSimpleTagChoice = deleteSimpleTagChoice;
 window.selectKnowledgeTag = selectKnowledgeTag;
