@@ -866,11 +866,13 @@ function renderStudySectionScoreInputs(study) {
   const sections = studySectionTags(study);
   setText("studyRecordRecallLabel", sections.length ? "章节加权记忆分" : "这次记住了多少？");
   if (!sections.length) return "";
+  const rootNames = uniqueTagNames(sections.map((tag) => rootTagName(tag)));
   return `
     <div class="section-score-head">
       <strong>分小节记录</strong>
       <span>按知识点重要性加权</span>
     </div>
+    ${rootNames.length > 1 ? `<p class="warning-text">这条学习记录关联了多个知识主分支：${escapeHtml(rootNames.join("、"))}。如果有无关项，可点“移除此知识点”。</p>` : ""}
     ${sections.map((tag) => {
       const score = latestStudySectionScore(study.id, tag.id) ?? currentScore(study);
       const safeScore = clamp(Number(score) || 0, 0, 100);
@@ -887,6 +889,7 @@ function renderStudySectionScoreInputs(study) {
                 </select>
               </label>
               <span class="muted">权重 ${weight}</span>
+              <button class="small-button danger" type="button" onclick="removeSectionTagFromStudy('${study.id}', '${tag.id}')">移除此知识点</button>
             </div>
           </div>
           <label>
@@ -906,6 +909,30 @@ function studySectionTags(study) {
 
 function isTreeKnowledgeTag(tag) {
   return isKnowledgeTag(tag);
+}
+
+function rootTagName(tag) {
+  const chain = tagWithAncestors(tag);
+  return chain[chain.length - 1]?.name || tag?.name || "";
+}
+
+async function removeSectionTagFromStudy(studyId, tagId) {
+  const study = state.study.find((item) => item.id === studyId);
+  const tag = state.tags.find((row) => row.id === tagId);
+  if (!study || !tag) return;
+  const ok = window.confirm(`确定从“${study.title || "这条学习记录"}”里移除知识点“${tagPath(tag)}”吗？\n\n这只会解除这条学习记录的关联，不会删除知识点本身。`);
+  if (!ok) return;
+  study.tagIds = (study.tagIds || []).filter((idValue) => idValue !== tagId);
+  study.updatedAt = now();
+  await put("study", study);
+  await loadState();
+  const updated = state.study.find((item) => item.id === studyId);
+  if (updated && document.getElementById("studyRecordModal").open) {
+    document.getElementById("studySectionScores").innerHTML = renderStudySectionScoreInputs(updated);
+    updateStudyRecordAggregateFromSections();
+  }
+  render();
+  toast("已从这条学习记录移除此知识点。");
 }
 
 function latestStudySectionScore(studyId, tagId) {
@@ -3596,6 +3623,7 @@ window.deleteTag = deleteTag;
 window.deleteSelectedTag = deleteSelectedTag;
 window.renameTag = renameTag;
 window.removeTagFromField = removeTagFromField;
+window.removeSectionTagFromStudy = removeSectionTagFromStudy;
 window.updateSelectedTagImportance = updateSelectedTagImportance;
 window.addSimpleTagChoice = addSimpleTagChoice;
 window.deleteSimpleTagChoice = deleteSimpleTagChoice;
