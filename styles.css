@@ -1444,6 +1444,16 @@ dialog::backdrop {
   color: var(--muted);
 }
 
+.warning-text {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid #facc15;
+  border-radius: 8px;
+  background: #fefce8;
+  color: #854d0e;
+  font-size: 13px;
+}
+
 .section-score-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 78px;
@@ -1494,6 +1504,11 @@ dialog::backdrop {
 .section-score-controls .muted {
   font-size: 12px;
   font-weight: 600;
+}
+
+.section-score-controls .danger {
+  padding: 5px 8px;
+  font-size: 12px;
 }
 
 .section-score-row label {
