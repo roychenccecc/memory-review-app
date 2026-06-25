@@ -2094,6 +2094,7 @@ async function createNextTask(sourceType, item, fromDate, result = "") {
     isCram: false,
     intervalDays: interval,
     createdByResult: result,
+    postponedUntil: result === "postponed" ? earliestDate : "",
     createdAt: existing?.createdAt || now(),
     updatedAt: now(),
   };
@@ -2117,9 +2118,12 @@ function buildDisplayTasks() {
   for (const cramTask of buildCramTasks()) {
     const existing = pending.find((task) => task.sourceType === cramTask.sourceType && task.sourceId === cramTask.sourceId);
     if (existing) {
-      existing.isCram = true;
+      const postponed = isPostponedBeyondToday(existing);
+      existing.isCram = !postponed;
       existing.priority = Math.max(existing.priority || 0, cramTask.priority || 0);
-      existing.earliestDate = minDate(existing.earliestDate || existing.scheduledDate, cramTask.earliestDate || cramTask.scheduledDate);
+      if (!postponed) {
+        existing.earliestDate = minDate(existing.earliestDate || existing.scheduledDate, cramTask.earliestDate || cramTask.scheduledDate);
+      }
     } else {
       pending.push(cramTask);
     }
@@ -2190,6 +2194,16 @@ function taskSourceKey(task) {
   return `${task.sourceType}:${task.sourceId}`;
 }
 
+function activePostponedUntil(task) {
+  const today = toDateInput(new Date());
+  return task?.postponedUntil && task.postponedUntil >= today ? task.postponedUntil : "";
+}
+
+function isPostponedBeyondToday(task) {
+  const today = toDateInput(new Date());
+  return Boolean(task?.postponedUntil && task.postponedUntil > today);
+}
+
 function dailyReviewLimit() {
   return clamp(Number(state.settings.dailyReviewLimit) || 6, 1, 80);
 }
@@ -2243,11 +2257,13 @@ async function migratePendingTaskEarliestDates() {
         updatedAt: now(),
       });
     }
-    if (task.earliestDate === earliestDate && task.intervalDays === nextIntervalState.interval) continue;
+    const postponedUntil = activePostponedUntil(task);
+    const nextEarliestDate = maxDate(earliestDate, postponedUntil);
+    if (task.earliestDate === nextEarliestDate && task.intervalDays === nextIntervalState.interval) continue;
     await put("tasks", {
       ...task,
-      earliestDate,
-      scheduledDate: earliestDate,
+      earliestDate: nextEarliestDate,
+      scheduledDate: nextEarliestDate,
       intervalDays: nextIntervalState.interval,
       priority: priorityScore(item, false),
       updatedAt: now(),
@@ -2902,17 +2918,32 @@ function setMistakeRecordRecallPercent(value) {
 }
 
 async function postponeTask(taskId, sourceType, sourceId) {
-  if (taskId && !taskId.startsWith("cram-")) {
-    const task = state.tasks.find((row) => row.id === taskId);
-    if (task) {
-      task.earliestDate = addDays(toDateInput(new Date()), 1);
-      task.scheduledDate = task.earliestDate;
-      task.updatedAt = now();
-      await put("tasks", task);
-    }
-  } else {
-    const item = findItem(sourceType, sourceId);
-    if (item) await createNextTask(sourceType, item, toDateInput(new Date()), "postponed");
+  const item = findItem(sourceType, sourceId);
+  if (!item) return;
+  const postponedUntil = addDays(toDateInput(new Date()), 1);
+  const existingTasks = state.tasks
+    .filter((row) => row.status === "pending" && !row.isCram && row.sourceType === sourceType && row.sourceId === sourceId)
+    .sort((a, b) => pendingTaskKeepSort(a, b));
+  const target = existingTasks.find((row) => row.id === taskId) || existingTasks[0];
+  const taskValue = {
+    ...(target || {}),
+    id: target?.id || id("task"),
+    sourceType,
+    sourceId,
+    earliestDate: postponedUntil,
+    scheduledDate: postponedUntil,
+    status: "pending",
+    priority: priorityScore(item, false),
+    isCram: false,
+    intervalDays: target?.intervalDays || item.currentInterval || 1,
+    createdByResult: "postponed",
+    postponedUntil,
+    createdAt: target?.createdAt || now(),
+    updatedAt: now(),
+  };
+  await put("tasks", taskValue);
+  for (const task of existingTasks) {
+    if (task.id !== taskValue.id) await remove("tasks", task.id);
   }
   await refreshSchedule();
   toast("已延后 1 天。");
