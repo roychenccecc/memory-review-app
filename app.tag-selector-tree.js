@@ -365,6 +365,7 @@ function renderTaskCard(task) {
   const title = task.sourceType === "study" ? item.title : item.location || firstLine(item.question) || "未命名错题";
   const detail = task.sourceType === "study" ? item.notes : item.reason;
   const dateLabel = task.scheduledDate < toDateInput(new Date()) ? "逾期" : "计划";
+  const postponed = isPostponedBeyondToday(task);
   return `
     <article class="task-card">
       <div class="memory-strip ${scoreClass(score)}"></div>
@@ -383,7 +384,9 @@ function renderTaskCard(task) {
       <div class="card-actions">
         <button class="small-button" onclick="openEditItem('${task.sourceType}','${task.sourceId}')">编辑内容</button>
         <button class="small-button" onclick="${task.sourceType === "mistake" ? `openMistakeRecord('${task.sourceId}','${task.id || ""}')` : `openStudyRecord('${task.sourceId}','${task.id || ""}')`}">${task.sourceType === "mistake" ? "错题记录" : "学习记录"}</button>
-        <button class="small-button" onclick="postponeTask('${task.id || ""}', '${task.sourceType}', '${task.sourceId}')">延后1天</button>
+        ${postponed
+          ? `<button class="small-button" onclick="undoPostponeTask('${task.id || ""}', '${task.sourceType}', '${task.sourceId}')">撤销延后</button>`
+          : `<button class="small-button" onclick="postponeTask('${task.id || ""}', '${task.sourceType}', '${task.sourceId}')">延后1天</button>`}
       </div>
     </article>
   `;
@@ -2095,6 +2098,8 @@ async function createNextTask(sourceType, item, fromDate, result = "") {
     intervalDays: interval,
     createdByResult: result,
     postponedUntil: result === "postponed" ? earliestDate : "",
+    postponePreviousEarliestDate: "",
+    postponePreviousScheduledDate: "",
     createdAt: existing?.createdAt || now(),
     updatedAt: now(),
   };
@@ -2921,10 +2926,13 @@ async function postponeTask(taskId, sourceType, sourceId) {
   const item = findItem(sourceType, sourceId);
   if (!item) return;
   const postponedUntil = addDays(toDateInput(new Date()), 1);
+  const displayTask = buildDisplayTasks().find((row) => row.id === taskId || (row.sourceType === sourceType && row.sourceId === sourceId));
   const existingTasks = state.tasks
     .filter((row) => row.status === "pending" && !row.isCram && row.sourceType === sourceType && row.sourceId === sourceId)
     .sort((a, b) => pendingTaskKeepSort(a, b));
   const target = existingTasks.find((row) => row.id === taskId) || existingTasks[0];
+  const previousEarliestDate = target?.earliestDate || displayTask?.earliestDate || displayTask?.scheduledDate || toDateInput(new Date());
+  const previousScheduledDate = target?.scheduledDate || displayTask?.scheduledDate || previousEarliestDate;
   const taskValue = {
     ...(target || {}),
     id: target?.id || id("task"),
@@ -2938,6 +2946,8 @@ async function postponeTask(taskId, sourceType, sourceId) {
     intervalDays: target?.intervalDays || item.currentInterval || 1,
     createdByResult: "postponed",
     postponedUntil,
+    postponePreviousEarliestDate: previousEarliestDate,
+    postponePreviousScheduledDate: previousScheduledDate,
     createdAt: target?.createdAt || now(),
     updatedAt: now(),
   };
@@ -2947,6 +2957,32 @@ async function postponeTask(taskId, sourceType, sourceId) {
   }
   await refreshSchedule();
   toast("已延后 1 天。");
+  render();
+}
+
+async function undoPostponeTask(taskId, sourceType, sourceId) {
+  const item = findItem(sourceType, sourceId);
+  if (!item) return;
+  const today = toDateInput(new Date());
+  const existingTasks = state.tasks
+    .filter((row) => row.status === "pending" && !row.isCram && row.sourceType === sourceType && row.sourceId === sourceId)
+    .sort((a, b) => pendingTaskKeepSort(a, b));
+  const target = existingTasks.find((row) => row.id === taskId) || existingTasks[0];
+  if (!target) return;
+  const restoredEarliestDate = target.postponePreviousEarliestDate || target.postponePreviousScheduledDate || today;
+  const restoredScheduledDate = target.postponePreviousScheduledDate || restoredEarliestDate;
+  await put("tasks", {
+    ...target,
+    earliestDate: restoredEarliestDate,
+    scheduledDate: restoredScheduledDate,
+    priority: priorityScore(item, false),
+    postponedUntil: "",
+    postponePreviousEarliestDate: "",
+    postponePreviousScheduledDate: "",
+    updatedAt: now(),
+  });
+  await refreshSchedule();
+  toast("已撤销延后。");
   render();
 }
 
@@ -3649,6 +3685,7 @@ window.openEditReview = openEditReview;
 window.deleteReviewLog = deleteReviewLog;
 window.openEditItem = openEditItem;
 window.postponeTask = postponeTask;
+window.undoPostponeTask = undoPostponeTask;
 window.deleteItem = deleteItem;
 window.deleteTag = deleteTag;
 window.deleteSelectedTag = deleteSelectedTag;
