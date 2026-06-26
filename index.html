@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>自适应复习与错题管理器</title>
-    <link rel="stylesheet" href="styles.css?v=20260626-reset-new-form-tags" />
+    <link rel="stylesheet" href="styles.css?v=20260626-backfill-review-date" />
   </head>
   <body>
     <div class="app-shell">
@@ -482,6 +482,10 @@
             <input name="sourceId" type="hidden" />
             <input name="taskId" type="hidden" />
             <input name="logId" type="hidden" />
+            <label>
+              复习日期
+              <input name="date" type="date" />
+            </label>
             <div class="recall-control">
               <div class="recall-head">
                 <strong id="studyRecordRecallLabel">这次记住了多少？</strong>
@@ -523,6 +527,10 @@
             <input name="sourceId" type="hidden" />
             <input name="taskId" type="hidden" />
             <input name="logId" type="hidden" />
+            <label>
+              复习日期
+              <input name="date" type="date" />
+            </label>
             <div class="recall-control">
               <div class="recall-head">
                 <strong>这次记住了多少？</strong>
@@ -617,6 +625,6 @@
 
     <datalist id="tagOptions"></datalist>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="app.tag-selector-tree.js?v=20260626-reset-new-form-tags"></script>
+    <script src="app.tag-selector-tree.js?v=20260626-backfill-review-date"></script>
   </body>
 </html>
