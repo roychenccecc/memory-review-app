@@ -2698,6 +2698,7 @@ function prepareNewStudyForm() {
   const form = document.getElementById("studyForm");
   form.reset();
   formField(form, "id").value = "";
+  resetTagFormState("study");
   setText("studyModalTitle", "新增学习记录");
   setText("studySubmitBtn", "保存");
   setDefaultDates();
@@ -2711,6 +2712,7 @@ function prepareNewMistakeForm() {
   form.reset();
   formField(form, "id").value = "";
   formField(form, "removeImage").value = "";
+  resetTagFormState("mistake");
   setText("mistakeModalTitle", "新增错题");
   setText("mistakeSubmitBtn", "保存");
   clearMistakeImage();
@@ -2771,6 +2773,17 @@ function openEditMistake(idValue) {
   clearTreeBuilder("mistake");
   resetTagPicker("mistake");
   openModal("mistakeModal");
+}
+
+function resetTagFormState(kind) {
+  const form = document.getElementById(`${kind}Form`);
+  const tagsInput = formField(form, "tags");
+  tagsInput.value = "";
+  tagsInput.defaultValue = "";
+  const manualInput = document.getElementById(`${kind}ManualTagInput`);
+  if (manualInput) manualInput.value = "";
+  selectedPickerTagIds[kind] = "";
+  selectedTreeParentIds[kind] = "";
 }
 
 function formField(form, name) {
