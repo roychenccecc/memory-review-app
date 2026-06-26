@@ -858,6 +858,7 @@ function openStudyRecord(studyId, taskId = "") {
   formField(form, "sourceId").value = study.id;
   formField(form, "taskId").value = taskId || "";
   formField(form, "logId").value = "";
+  setReviewFormDate(form, toDateInput(new Date()));
   setStudyRecordRecallPercent(80);
   document.getElementById("studySectionScores").innerHTML = renderStudySectionScoreInputs(study);
   updateStudyRecordAggregateFromSections();
@@ -960,7 +961,7 @@ function importanceOptions(selected = "medium") {
 function renderStudyHistoryList(study) {
   const logs = state.logs
     .filter((log) => log.sourceType === "study" && log.sourceId === study.id)
-    .sort((a, b) => (b.createdAt || b.date || "").localeCompare(a.createdAt || a.date || ""));
+    .sort(reviewLogSortDesc);
   const initialRecord = `
     <article class="history-card compact-history-card">
       <div class="meta">
@@ -1016,6 +1017,7 @@ function openMistakeRecord(mistakeId, taskId = "") {
   formField(form, "sourceId").value = mistake.id;
   formField(form, "taskId").value = taskId || "";
   formField(form, "logId").value = "";
+  setReviewFormDate(form, toDateInput(new Date()));
   setMistakeRecordRecallPercent(80);
   document.getElementById("mistakeRecordHistoryList").innerHTML = renderMistakeHistoryList(mistake);
   openModal("mistakeHistoryModal");
@@ -1024,7 +1026,7 @@ function openMistakeRecord(mistakeId, taskId = "") {
 function renderMistakeHistoryList(mistake) {
   const logs = state.logs
     .filter((log) => log.sourceType === "mistake" && log.sourceId === mistake.id)
-    .sort((a, b) => (b.createdAt || b.date || "").localeCompare(a.createdAt || a.date || ""));
+    .sort(reviewLogSortDesc);
   const initialReason = `
     <article class="history-card compact-history-card">
       <div class="meta">
@@ -1790,6 +1792,7 @@ function resetStudyRecordFormForNewLog() {
   formField(form, "logId").value = "";
   formField(form, "taskId").value = "";
   formField(form, "notes").value = "";
+  setReviewFormDate(form, toDateInput(new Date()));
   setText("studyRecordSubmitBtn", "保存本次记录");
   setStudyRecordRecallPercent(80);
   if (study) {
@@ -1803,6 +1806,7 @@ function resetMistakeRecordFormForNewLog() {
   formField(form, "logId").value = "";
   formField(form, "taskId").value = "";
   formField(form, "notes").value = "";
+  setReviewFormDate(form, toDateInput(new Date()));
   setText("mistakeRecordSubmitBtn", "保存本次记录");
   setMistakeRecordRecallPercent(80);
 }
@@ -1815,6 +1819,7 @@ function loadStudyLogIntoRecordForm(log) {
   formField(form, "sourceId").value = study.id;
   formField(form, "taskId").value = log.taskId || "";
   formField(form, "logId").value = log.id;
+  setReviewFormDate(form, log.date || toDateInput(new Date()));
   formField(form, "notes").value = log.notes || "";
   document.getElementById("studySectionScores").innerHTML = renderStudySectionScoreInputs(study);
   setStudyRecordRecallPercent(log.recallPercent ?? log.afterScore ?? currentScore(study));
@@ -1831,9 +1836,17 @@ function loadMistakeLogIntoRecordForm(log) {
   formField(form, "sourceId").value = mistake.id;
   formField(form, "taskId").value = log.taskId || "";
   formField(form, "logId").value = log.id;
+  setReviewFormDate(form, log.date || toDateInput(new Date()));
   formField(form, "notes").value = log.notes || "";
   setMistakeRecordRecallPercent(log.recallPercent ?? log.afterScore ?? currentScore(mistake));
   setText("mistakeRecordSubmitBtn", "保存修改");
+}
+
+function setReviewFormDate(form, value) {
+  const field = formField(form, "date");
+  const today = toDateInput(new Date());
+  field.value = value || today;
+  field.max = today;
 }
 
 function applyStudySectionScores(sectionScores = [], fallbackScore = 80) {
@@ -1859,33 +1872,44 @@ async function persistReviewForm(form) {
   const result = resultFromPercent(recallPercent);
   const item = findItem(sourceType, sourceId);
   if (!item) return null;
+  const today = toDateInput(new Date());
+  const logDate = data.get("date") || today;
+  if (logDate > today) {
+    toast("复习日期不能晚于今天。");
+    return null;
+  }
 
   if (logId) {
-    await updateReviewLog({ logId, sourceType, sourceId, taskId, recallPercent, result, notes: data.get("notes").trim(), sectionScores });
+    await updateReviewLog({ logId, sourceType, sourceId, taskId, recallPercent, result, notes: data.get("notes").trim(), sectionScores, date: logDate });
     return { updated: true, sourceType, sourceId, recallPercent };
   }
 
   const logCreatedAt = now();
-  const logDate = toDateInput(new Date());
   const newLogId = id("log");
-  const beforeScore = currentScore(item);
-  const beforeIntervalIndex = item.currentIntervalIndex || 0;
-  const beforeInterval = item.currentInterval || BASE_INTERVALS[beforeIntervalIndex] || 1;
-  const afterScore = memoryScoreFromReview(sourceType, sourceId, {
+  const reviewDraft = {
     id: newLogId,
+    sourceType,
+    sourceId,
     recallPercent,
     sectionScores,
     createdAt: logCreatedAt,
     date: logDate,
-  });
+  };
+  const isNewLogLatest = [reviewDraft, latestLogFor(sourceType, sourceId)].filter(Boolean).sort(reviewLogSortDesc)[0]?.id === newLogId;
+  const beforeScore = currentScore(item);
+  const beforeIntervalIndex = item.currentIntervalIndex || 0;
+  const beforeInterval = item.currentInterval || BASE_INTERVALS[beforeIntervalIndex] || 1;
+  const afterScore = memoryScoreFromReview(sourceType, sourceId, reviewDraft);
   const delta = afterScore - beforeScore;
   const nextIntervalState = intervalStateAfterReview(item, recallPercent, beforeScore);
 
   item.memoryScore = afterScore;
-  item.currentIntervalIndex = nextIntervalState.index;
-  item.currentInterval = nextIntervalState.interval;
-  item.lastRecallPercent = recallPercent;
-  item.lastReviewedAt = toDateInput(new Date());
+  if (isNewLogLatest) {
+    item.currentIntervalIndex = nextIntervalState.index;
+    item.currentInterval = nextIntervalState.interval;
+    item.lastRecallPercent = recallPercent;
+  }
+  item.lastReviewedAt = maxDate(item.lastReviewedAt || "", logDate);
   item.updatedAt = now();
 
   await put(sourceType === "study" ? "study" : "mistakes", item);
@@ -1899,7 +1923,7 @@ async function persistReviewForm(form) {
       await put("tasks", task);
     }
   }
-  for (const task of state.tasks.filter((row) => row.status === "pending" && row.sourceType === sourceType && row.sourceId === sourceId && row.scheduledDate <= toDateInput(new Date()))) {
+  for (const task of state.tasks.filter((row) => row.status === "pending" && row.sourceType === sourceType && row.sourceId === sourceId && row.scheduledDate <= logDate)) {
     task.status = "done";
     task.completedAt = now();
     task.result = result;
@@ -1927,7 +1951,15 @@ async function persistReviewForm(form) {
     createdAt: logCreatedAt,
   });
 
-  await createNextTask(sourceType, item, toDateInput(new Date()), result);
+  if (isNewLogLatest) {
+    await createNextTask(sourceType, item, logDate, result);
+  } else {
+    for (const task of state.tasks.filter((row) => row.status === "pending" && row.sourceType === sourceType && row.sourceId === sourceId)) {
+      task.priority = priorityScore(item, Boolean(task.isCram));
+      task.updatedAt = now();
+      await put("tasks", task);
+    }
+  }
   await refreshSchedule();
   return { updated: false, sourceType, sourceId, recallPercent };
 }
@@ -1949,37 +1981,56 @@ function weightedSectionScore(sectionScores = []) {
   return Math.round(sectionScores.reduce((sum, section) => sum + Number(section.score) * Number(section.weight), 0) / totalWeight);
 }
 
-async function updateReviewLog({ logId, sourceType, sourceId, taskId, recallPercent, result, notes, sectionScores = [] }) {
+async function updateReviewLog({ logId, sourceType, sourceId, taskId, recallPercent, result, notes, sectionScores = [], date }) {
   const log = state.logs.find((row) => row.id === logId);
   const item = findItem(sourceType, sourceId);
   if (!log || !item) return;
+  const nextDate = date || log.date || toDateInput(new Date());
   const beforeScore = Number(log.beforeScore ?? currentScore(item));
   const afterScore = memoryScoreFromReview(sourceType, sourceId, {
     ...log,
+    date: nextDate,
     recallPercent,
     result,
     notes,
     sectionScores: sectionScores.length ? sectionScores : log.sectionScores,
   });
-  const isLatestLog = latestLogFor(sourceType, sourceId)?.id === log.id;
+  const isLatestLog = state.logs
+    .filter((row) => row.sourceType === sourceType && row.sourceId === sourceId && row.id !== log.id)
+    .concat({ ...log, date: nextDate })
+    .sort(reviewLogSortDesc)[0]?.id === log.id;
   const intervalBase = {
     ...item,
     currentIntervalIndex: log.beforeIntervalIndex ?? item.currentIntervalIndex,
     currentInterval: log.beforeInterval ?? item.currentInterval,
   };
   const intervalState = isLatestLog ? intervalStateAfterReview(intervalBase, recallPercent, beforeScore) : null;
+  const latestAfterEdit = state.logs
+    .filter((row) => row.sourceType === sourceType && row.sourceId === sourceId && row.id !== log.id)
+    .concat({
+      ...log,
+      date: nextDate,
+      recallPercent,
+      afterScore,
+      afterIntervalIndex: intervalState?.index ?? log.afterIntervalIndex,
+      afterInterval: intervalState?.interval ?? log.afterInterval,
+    })
+    .sort(reviewLogSortDesc)[0];
   item.memoryScore = afterScore;
   if (intervalState) {
     item.currentIntervalIndex = intervalState.index;
     item.currentInterval = intervalState.interval;
-    item.lastRecallPercent = recallPercent;
   }
+  item.lastReviewedAt = latestAfterEdit?.date || latestAfterEdit?.createdAt?.slice(0, 10) || item.lastReviewedAt;
+  item.lastRecallPercent = Number(latestAfterEdit?.recallPercent ?? latestAfterEdit?.afterScore ?? item.memoryScore);
+  item.currentIntervalIndex = latestAfterEdit?.afterIntervalIndex ?? item.currentIntervalIndex;
+  item.currentInterval = latestAfterEdit?.afterInterval ?? item.currentInterval;
   item.updatedAt = now();
-  if (log.date === toDateInput(new Date())) item.lastReviewedAt = log.date;
   await put(sourceType === "study" ? "study" : "mistakes", item);
 
   log.result = result;
   log.recallPercent = recallPercent;
+  log.date = nextDate;
   if (sectionScores.length) log.sectionScores = sectionScores;
   log.notes = notes;
   log.afterScore = afterScore;
@@ -2036,7 +2087,7 @@ async function recomputeItemFromReviewLogs(sourceType, sourceId) {
   if (!item) return;
   const logs = state.logs
     .filter((log) => log.sourceType === sourceType && log.sourceId === sourceId)
-    .sort((a, b) => (b.createdAt || b.date || "").localeCompare(a.createdAt || a.date || ""));
+    .sort(reviewLogSortDesc);
   if (logs.length) {
     const latest = logs[0];
     item.memoryScore = memoryScoreFromReview(sourceType, sourceId, null);
@@ -2440,7 +2491,7 @@ function recentReviewScores(sourceType, sourceId, reviewDraft) {
   const rows = state.logs
     .filter((log) => log.sourceType === sourceType && log.sourceId === sourceId && log.id !== reviewDraft?.id)
     .concat(reviewDraft ? [{ ...reviewDraft, sourceType, sourceId }] : [])
-    .sort((a, b) => (b.createdAt || b.date || "").localeCompare(a.createdAt || a.date || ""));
+    .sort(reviewLogSortDesc);
   return rows
     .map((log) => Number(log.recallPercent ?? log.afterScore))
     .filter((score) => Number.isFinite(score))
@@ -2458,7 +2509,7 @@ function weightedLatestMistakeScore(scores) {
 function latestLogFor(sourceType, sourceId) {
   return state.logs
     .filter((log) => log.sourceType === sourceType && log.sourceId === sourceId)
-    .sort((a, b) => (b.createdAt || b.date || "").localeCompare(a.createdAt || a.date || ""))[0];
+    .sort(reviewLogSortDesc)[0];
 }
 
 function latestRecallPercent(item) {
@@ -3571,6 +3622,13 @@ function tagTreeOrderCompare(a, b) {
 
 function byDateDesc(a, b) {
   return (b.date || b.createdAt || "").localeCompare(a.date || a.createdAt || "");
+}
+
+function reviewLogSortDesc(a, b) {
+  const aDate = a.date || a.createdAt || "";
+  const bDate = b.date || b.createdAt || "";
+  if (aDate !== bDate) return bDate.localeCompare(aDate);
+  return (b.createdAt || "").localeCompare(a.createdAt || "");
 }
 
 function addDays(dateString, days) {
