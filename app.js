@@ -2190,7 +2190,7 @@ function buildDisplayTasks() {
 function applyDailyCapacity(tasks) {
   const today = toDateInput(new Date());
   const limit = dailyReviewLimit();
-  const counts = new Map();
+  const counts = new Map([[today, Math.min(limit, reviewedTaskCountOn(today))]]);
   return tasks
     .map((task) => ({
       ...task,
@@ -2211,6 +2211,15 @@ function applyDailyCapacity(tasks) {
       return { ...task, scheduledDate };
     })
     .filter((task) => task.scheduledDate);
+}
+
+function reviewedTaskCountOn(date) {
+  const reviewedSources = new Set(
+    state.logs
+      .filter((log) => log.date === date && findItem(log.sourceType, log.sourceId))
+      .map((log) => `${log.sourceType}:${log.sourceId}`)
+  );
+  return reviewedSources.size;
 }
 
 function taskQueueSort(a, b) {
