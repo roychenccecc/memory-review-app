@@ -2089,8 +2089,42 @@ async function recomputeItemFromReviewLogs(sourceType, sourceId) {
     .filter((log) => log.sourceType === sourceType && log.sourceId === sourceId)
     .sort(reviewLogSortDesc);
   if (logs.length) {
-    const latest = logs[0];
-    item.memoryScore = memoryScoreFromReview(sourceType, sourceId, null);
+    const replayItem = {
+      ...item,
+      memoryScore: sourceType === "study" ? 70 : 60,
+      currentIntervalIndex: 0,
+      currentInterval: 1,
+    };
+    const replayedLogs = [];
+    for (const log of [...logs].reverse()) {
+      const recallPercent = clamp(Number(log.recallPercent ?? log.afterScore ?? replayItem.memoryScore ?? 70), 0, 100);
+      const beforeScore = Number(replayItem.memoryScore ?? (sourceType === "study" ? 70 : 60));
+      const beforeIntervalIndex = clamp(Number(replayItem.currentIntervalIndex ?? 0), 0, BASE_INTERVALS.length - 1);
+      const beforeInterval = replayItem.currentInterval || BASE_INTERVALS[beforeIntervalIndex] || 1;
+      const intervalState = intervalStateAfterReview(replayItem, recallPercent, beforeScore);
+      const nextLog = {
+        ...log,
+        recallPercent,
+        beforeScore,
+        beforeIntervalIndex,
+        beforeInterval,
+        afterScore: scoreFromReviewRows(sourceType, [...replayedLogs, { ...log, recallPercent }]),
+        afterIntervalIndex: intervalState.index,
+        afterInterval: intervalState.interval,
+        result: log.result || resultFromPercent(recallPercent),
+        updatedAt: now(),
+      };
+      nextLog.delta = nextLog.afterScore - nextLog.beforeScore;
+      replayedLogs.push(nextLog);
+      replayItem.memoryScore = nextLog.afterScore;
+      replayItem.currentIntervalIndex = nextLog.afterIntervalIndex;
+      replayItem.currentInterval = nextLog.afterInterval;
+      replayItem.lastRecallPercent = nextLog.recallPercent;
+      replayItem.lastReviewedAt = nextLog.date || nextLog.createdAt?.slice(0, 10) || replayItem.lastReviewedAt;
+      await put("logs", nextLog);
+    }
+    const latest = replayedLogs.sort(reviewLogSortDesc)[0];
+    item.memoryScore = Number(latest.afterScore ?? replayItem.memoryScore);
     item.lastRecallPercent = Number(latest.recallPercent ?? latest.afterScore ?? item.memoryScore);
     item.lastReviewedAt = latest.date || latest.createdAt?.slice(0, 10) || item.lastReviewedAt;
     item.currentIntervalIndex = latest.afterIntervalIndex ?? item.currentIntervalIndex ?? 0;
@@ -2111,6 +2145,18 @@ async function recomputeItemFromReviewLogs(sourceType, sourceId) {
   }
   await refreshSchedule();
   await loadState();
+}
+
+function scoreFromReviewRows(sourceType, rows = []) {
+  const scores = rows
+    .slice()
+    .sort(reviewLogSortDesc)
+    .map((log) => Number(log.recallPercent ?? log.afterScore))
+    .filter((score) => Number.isFinite(score))
+    .map((score) => clamp(score, 0, 100))
+    .slice(0, 10);
+  if (!scores.length) return sourceType === "study" ? 70 : 60;
+  return sourceType === "mistake" ? weightedLatestMistakeScore(scores) : averageScores(scores);
 }
 
 function refreshOpenRecordHistory(sourceType, sourceId) {
