@@ -9,7 +9,7 @@ const TAG_STUDY_RATIO = 0.6;
 const TAG_MISTAKE_RATIO = 0.4;
 const MISTAKE_COUNT_PENALTY = 3;
 const MAX_MISTAKE_PENALTY = 18;
-const REVIEW_CHAIN_REPAIR_VERSION = "20260630-recompute-review-chain-v2";
+const REVIEW_CHAIN_REPAIR_VERSION = "20260630-recompute-review-chain-v3";
 const RESULT_LABEL = { remembered: "熟记", unclear: "模糊", forgotten: "完全忘了" };
 const TYPE_LABEL = { study: "学习", mistake: "错题" };
 const STUDY_KIND_LABEL = { new: "新学", review: "复习" };
@@ -1984,6 +1984,17 @@ function weightedSectionScore(sectionScores = []) {
   return Math.round(sectionScores.reduce((sum, section) => sum + Number(section.score) * Number(section.weight), 0) / totalWeight);
 }
 
+function reviewScoreForLog(log, sourceType = "") {
+  const recallPercent = Number(log?.recallPercent);
+  if (Number.isFinite(recallPercent)) return clamp(recallPercent, 0, 100);
+  if (sourceType === "study" && Array.isArray(log?.sectionScores) && log.sectionScores.length) {
+    return weightedSectionScore(log.sectionScores);
+  }
+  const afterScore = Number(log?.afterScore);
+  if (Number.isFinite(afterScore)) return clamp(afterScore, 0, 100);
+  return null;
+}
+
 async function updateReviewLog({ logId, sourceType, sourceId, taskId, recallPercent, result, notes, sectionScores = [], date }) {
   const log = state.logs.find((row) => row.id === logId);
   const item = findItem(sourceType, sourceId);
@@ -2066,7 +2077,8 @@ async function updateReviewLog({ logId, sourceType, sourceId, taskId, recallPerc
     task.updatedAt = now();
     await put("tasks", task);
   }
-  await refreshSchedule();
+  await loadState();
+  await recomputeItemFromReviewLogs(sourceType, sourceId);
 }
 
 async function deleteReviewLog(logId) {
@@ -2101,7 +2113,8 @@ async function recomputeItemFromReviewLogs(sourceType, sourceId, options = {}) {
     };
     const replayedLogs = [];
     for (const log of [...logs].reverse()) {
-      const recallPercent = clamp(Number(log.recallPercent ?? log.afterScore ?? replayItem.memoryScore ?? 70), 0, 100);
+      const logScore = reviewScoreForLog(log, sourceType);
+      const recallPercent = clamp(Number(logScore ?? replayItem.memoryScore ?? 70), 0, 100);
       const beforeScore = Number(replayItem.memoryScore ?? (sourceType === "study" ? 70 : 60));
       const beforeIntervalIndex = clamp(Number(replayItem.currentIntervalIndex ?? 0), 0, BASE_INTERVALS.length - 1);
       const beforeInterval = replayItem.currentInterval || BASE_INTERVALS[beforeIntervalIndex] || 1;
@@ -2142,7 +2155,14 @@ async function recomputeItemFromReviewLogs(sourceType, sourceId, options = {}) {
   }
   item.updatedAt = now();
   await put(sourceType === "study" ? "study" : "mistakes", item);
+  const nextFromDate = item.lastReviewedAt || item.date || item.createdAt?.slice(0, 10) || toDateInput(new Date());
+  const nextEarliestDate = capAtExam(addDays(nextFromDate, item.currentInterval || 1));
   for (const task of state.tasks.filter((row) => row.status === "pending" && row.sourceType === sourceType && row.sourceId === sourceId)) {
+    if (nextEarliestDate && !task.isCram) {
+      task.earliestDate = maxDate(nextEarliestDate, activePostponedUntil(task));
+      task.scheduledDate = task.earliestDate;
+      task.intervalDays = item.currentInterval || 1;
+    }
     task.priority = priorityScore(item, Boolean(task.isCram));
     task.updatedAt = now();
     await put("tasks", task);
@@ -2158,7 +2178,7 @@ function scoreFromReviewRows(sourceType, rows = []) {
   const scores = rows
     .slice()
     .sort(reviewLogSortDesc)
-    .map((log) => Number(log.recallPercent ?? log.afterScore))
+    .map((log) => reviewScoreForLog(log, sourceType))
     .filter((score) => Number.isFinite(score))
     .map((score) => clamp(score, 0, 100))
     .slice(0, 10);
@@ -2419,7 +2439,7 @@ function migratedIntervalStateForTask(task, item) {
   const latest = latestLogFor(task.sourceType, task.sourceId);
   const fromDate = latest?.date || item.lastReviewedAt;
   if (!fromDate) return null;
-  const recallPercent = clamp(Number(latest?.recallPercent ?? latest?.afterScore ?? item.lastRecallPercent ?? item.memoryScore ?? 70), 0, 100);
+  const recallPercent = clamp(Number(reviewScoreForLog(latest, task.sourceType) ?? item.lastRecallPercent ?? item.memoryScore ?? 70), 0, 100);
   const historicalScore = Number(latest?.beforeScore ?? item.memoryScore ?? currentScore(item));
   const baseIndex = legacyIntervalBaseIndex(task.sourceType, task.sourceId, item, latest);
   const migrated = intervalStateAfterReview({ ...item, currentIntervalIndex: baseIndex, currentInterval: BASE_INTERVALS[baseIndex] || 1 }, recallPercent, historicalScore);
@@ -2581,7 +2601,7 @@ function recentReviewScores(sourceType, sourceId, reviewDraft) {
     .concat(reviewDraft ? [{ ...reviewDraft, sourceType, sourceId }] : [])
     .sort(reviewLogSortDesc);
   return rows
-    .map((log) => Number(log.recallPercent ?? log.afterScore))
+    .map((log) => reviewScoreForLog(log, sourceType))
     .filter((score) => Number.isFinite(score))
     .map((score) => clamp(score, 0, 100))
     .slice(0, 10);
@@ -2605,7 +2625,7 @@ function latestRecallPercent(item) {
   if (Number.isFinite(stored)) return stored;
   const sourceType = isMistakeItem(item) ? "mistake" : "study";
   const latest = latestLogFor(sourceType, item.id);
-  const score = Number(latest?.recallPercent ?? latest?.afterScore ?? item.memoryScore ?? 70);
+  const score = Number(reviewScoreForLog(latest, sourceType) ?? item.memoryScore ?? 70);
   return Number.isFinite(score) ? clamp(score, 0, 100) : 70;
 }
 
