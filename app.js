@@ -9,6 +9,7 @@ const TAG_STUDY_RATIO = 0.6;
 const TAG_MISTAKE_RATIO = 0.4;
 const MISTAKE_COUNT_PENALTY = 3;
 const MAX_MISTAKE_PENALTY = 18;
+const REVIEW_CHAIN_REPAIR_VERSION = "20260630-recompute-review-chain-v2";
 const RESULT_LABEL = { remembered: "熟记", unclear: "模糊", forgotten: "完全忘了" };
 const TYPE_LABEL = { study: "学习", mistake: "错题" };
 const STUDY_KIND_LABEL = { new: "新学", review: "复习" };
@@ -46,11 +47,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   db = await openDb();
   await loadState();
   const repairedLegacyTags = await repairLegacySplitEnumerationTags();
+  const repairedReviewChains = await repairReviewScoreChainsIfNeeded();
   await refreshSchedule();
   bindEvents();
   setDefaultDates();
   render();
   if (repairedLegacyTags) toast(`已修复 ${repairedLegacyTags} 条旧的顿号误拆标签。`);
+  if (repairedReviewChains) toast(`已重新计算 ${repairedReviewChains} 条内容的复习分数链。`);
 });
 
 function openDb() {
@@ -2082,7 +2085,8 @@ async function deleteReviewLog(logId) {
   toast("复习记录已删除，记忆分已重新计算。");
 }
 
-async function recomputeItemFromReviewLogs(sourceType, sourceId) {
+async function recomputeItemFromReviewLogs(sourceType, sourceId, options = {}) {
+  const { refresh = true } = options;
   const item = findItem(sourceType, sourceId);
   if (!item) return;
   const logs = state.logs
@@ -2143,8 +2147,11 @@ async function recomputeItemFromReviewLogs(sourceType, sourceId) {
     task.updatedAt = now();
     await put("tasks", task);
   }
-  await refreshSchedule();
-  await loadState();
+  if (refresh) {
+    await refreshSchedule();
+    await loadState();
+  }
+  return true;
 }
 
 function scoreFromReviewRows(sourceType, rows = []) {
@@ -2157,6 +2164,32 @@ function scoreFromReviewRows(sourceType, rows = []) {
     .slice(0, 10);
   if (!scores.length) return sourceType === "study" ? 70 : 60;
   return sourceType === "mistake" ? weightedLatestMistakeScore(scores) : averageScores(scores);
+}
+
+async function repairReviewScoreChainsIfNeeded() {
+  if (state.settings.reviewChainRepairVersion === REVIEW_CHAIN_REPAIR_VERSION) return 0;
+  const sources = new Map();
+  for (const log of state.logs) {
+    if (!findItem(log.sourceType, log.sourceId)) continue;
+    sources.set(`${log.sourceType}:${log.sourceId}`, { sourceType: log.sourceType, sourceId: log.sourceId });
+  }
+  let repaired = 0;
+  for (const source of sources.values()) {
+    const changed = await recomputeItemFromReviewLogs(source.sourceType, source.sourceId, { refresh: false });
+    if (changed) repaired += 1;
+  }
+  state.settings = {
+    ...state.settings,
+    reviewChainRepairVersion: REVIEW_CHAIN_REPAIR_VERSION,
+    updatedAt: now(),
+  };
+  await put("settings", state.settings);
+  if (repaired) {
+    await loadState();
+    await refreshSchedule();
+    await loadState();
+  }
+  return repaired;
 }
 
 function refreshOpenRecordHistory(sourceType, sourceId) {
