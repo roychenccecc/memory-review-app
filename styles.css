@@ -949,6 +949,33 @@ button {
   gap: 18px;
 }
 
+.content-grid.weak-tags-collapsed {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.weak-tags-panel[hidden],
+.weak-tags-rail[hidden] {
+  display: none;
+}
+
+.weak-tags-rail {
+  writing-mode: vertical-rl;
+  align-self: start;
+  min-height: 180px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 700;
+  box-shadow: var(--shadow);
+}
+
+.weak-tags-rail:hover {
+  border-color: #9fb0ad;
+  background: #fbfcfb;
+}
+
 .panel {
   background: var(--surface);
   border: 1px solid var(--line);
