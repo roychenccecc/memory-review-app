@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>自适应复习与错题管理器</title>
-    <link rel="stylesheet" href="styles.css?v=20260630-score-chain-v3" />
+    <link rel="stylesheet" href="styles.css?v=20260702-weak-tags-collapse" />
   </head>
   <body>
     <div class="app-shell">
@@ -41,7 +41,7 @@
 
         <section class="view active" id="dashboard">
           <div class="stats-grid" id="statsGrid"></div>
-          <div class="content-grid">
+          <div class="content-grid" id="dashboardContentGrid">
             <section class="panel wide">
               <div class="panel-head">
                 <h3>今日与逾期</h3>
@@ -54,12 +54,14 @@
               </div>
               <div class="task-list" id="taskList"></div>
             </section>
-            <section class="panel">
+            <section class="panel weak-tags-panel" id="weakTagsPanel">
               <div class="panel-head">
                 <h3>记忆薄弱知识点</h3>
+                <button class="small-button" id="collapseWeakTagsBtn" type="button">收起</button>
               </div>
               <div id="weakTags" class="tag-insight-list"></div>
             </section>
+            <button class="weak-tags-rail" id="expandWeakTagsBtn" type="button">记忆薄弱知识点</button>
           </div>
         </section>
 
@@ -625,6 +627,6 @@
 
     <datalist id="tagOptions"></datalist>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="app.tag-selector-tree.js?v=20260630-score-chain-v3"></script>
+    <script src="app.tag-selector-tree.js?v=20260702-weak-tags-collapse"></script>
   </body>
 </html>
