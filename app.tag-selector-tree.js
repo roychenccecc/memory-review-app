@@ -25,6 +25,7 @@ let activeTagDetailId = "";
 let selectedPickerTagIds = { study: "", mistake: "" };
 let selectedTreeParentIds = { study: "", mistake: "" };
 let tagPickerCollapsedIds = { study: new Set(), mistake: new Set() };
+let weakTagsCollapsed = localStorage.getItem("weakTagsCollapsed") === "1";
 let state = {
   settings: {
     id: "main",
@@ -167,6 +168,8 @@ function bindEvents() {
   document.getElementById("mistakeRecordPercentRange").addEventListener("input", syncMistakeRecordRecallFromRange);
   document.getElementById("mistakeRecordPercentInput").addEventListener("input", syncMistakeRecordRecallFromInput);
   document.getElementById("reviewFilter").addEventListener("change", renderDashboard);
+  document.getElementById("collapseWeakTagsBtn").addEventListener("click", () => setWeakTagsCollapsed(true));
+  document.getElementById("expandWeakTagsBtn").addEventListener("click", () => setWeakTagsCollapsed(false));
   document.getElementById("historyFilter").addEventListener("change", renderHistory);
   document.getElementById("studySearch").addEventListener("input", renderStudy);
   document.getElementById("studyViewMode").addEventListener("change", renderStudy);
@@ -328,6 +331,23 @@ function renderDashboard() {
   `;
 
   document.getElementById("weakTags").innerHTML = renderWeakTags();
+  applyWeakTagsCollapseState();
+}
+
+function setWeakTagsCollapsed(collapsed) {
+  weakTagsCollapsed = collapsed;
+  localStorage.setItem("weakTagsCollapsed", collapsed ? "1" : "0");
+  applyWeakTagsCollapseState();
+}
+
+function applyWeakTagsCollapseState() {
+  const grid = document.getElementById("dashboardContentGrid");
+  const panel = document.getElementById("weakTagsPanel");
+  const expandButton = document.getElementById("expandWeakTagsBtn");
+  if (!grid || !panel || !expandButton) return;
+  grid.classList.toggle("weak-tags-collapsed", weakTagsCollapsed);
+  panel.hidden = weakTagsCollapsed;
+  expandButton.hidden = !weakTagsCollapsed;
 }
 
 function renderReviewedTaskCard(task) {
