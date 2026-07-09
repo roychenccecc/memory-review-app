@@ -14,6 +14,7 @@ const RESULT_LABEL = { remembered: "熟记", unclear: "模糊", forgotten: "完�
 const TYPE_LABEL = { study: "学习", mistake: "错题" };
 const STUDY_KIND_LABEL = { new: "新学", review: "复习" };
 const DEFAULT_QUESTION_TYPES = ["选择题", "简答题", "综合题", "计算题"];
+const PSYCH312_BRIDGE_KEY = "psych312-memory-review-bridge-v1";
 
 let db;
 let pastedMistakeImage = "";
@@ -26,6 +27,8 @@ let selectedPickerTagIds = { study: "", mistake: "" };
 let selectedTreeParentIds = { study: "", mistake: "" };
 let tagPickerCollapsedIds = { study: new Set(), mistake: new Set() };
 let weakTagsCollapsed = localStorage.getItem("weakTagsCollapsed") === "1";
+let activeBridgeDraftId = "";
+let bridgeCompletionProcessing = false;
 let state = {
   settings: {
     id: "main",
@@ -53,6 +56,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindEvents();
   setDefaultDates();
   render();
+  bindBridgeEvents();
+  await consumeBridgeReviewCompletions();
+  await handleBridgeLaunchDraft();
   if (repairedLegacyTags) toast(`已修复 ${repairedLegacyTags} 条旧的顿号误拆标签。`);
   if (repairedReviewChains) toast(`已重新计算 ${repairedReviewChains} 条内容的复习分数链。`);
 });
@@ -132,6 +138,192 @@ async function loadState() {
   state.tasks = tasks.sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
 }
 
+function readBridgeState() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PSYCH312_BRIDGE_KEY)) || {};
+    return {
+      version: 1,
+      dueReviews: Array.isArray(parsed.dueReviews) ? parsed.dueReviews : [],
+      completedReviews: Array.isArray(parsed.completedReviews) ? parsed.completedReviews : [],
+      reviewCompletions: Array.isArray(parsed.reviewCompletions) ? parsed.reviewCompletions : [],
+      learningDrafts: Array.isArray(parsed.learningDrafts) ? parsed.learningDrafts : [],
+      updatedAt: parsed.updatedAt || "",
+    };
+  } catch {
+    return {
+      version: 1,
+      dueReviews: [],
+      completedReviews: [],
+      reviewCompletions: [],
+      learningDrafts: [],
+      updatedAt: "",
+    };
+  }
+}
+
+function writeBridgeState(bridge) {
+  localStorage.setItem(PSYCH312_BRIDGE_KEY, JSON.stringify({
+    ...bridge,
+    version: 1,
+    updatedAt: now(),
+  }));
+}
+
+function bridgeReviewKey(sourceType, sourceId) {
+  return `${sourceType}:${sourceId}`;
+}
+
+function bridgeTaskPayload(task) {
+  const item = findItem(task.sourceType, task.sourceId);
+  if (!item) return null;
+  const title = task.sourceType === "study" ? item.title : item.location || firstLine(item.question) || "未命名错题";
+  const detail = task.sourceType === "study" ? item.notes : item.reason;
+  return {
+    key: bridgeReviewKey(task.sourceType, task.sourceId),
+    taskId: task.id || "",
+    sourceType: task.sourceType,
+    sourceId: task.sourceId,
+    title,
+    detail: detail || "",
+    tags: tagPathList(item.tagIds || []),
+    scheduledDate: task.scheduledDate,
+    earliestDate: task.earliestDate || task.scheduledDate,
+    isOverdue: task.scheduledDate < toDateInput(new Date()),
+    priority: task.priority || 0,
+    source: "memory-review-app",
+  };
+}
+
+function bridgeCompletedPayload(log) {
+  const item = findItem(log.sourceType, log.sourceId);
+  if (!item) return null;
+  const title = log.sourceType === "study" ? item.title : item.location || firstLine(item.question) || "未命名错题";
+  return {
+    key: bridgeReviewKey(log.sourceType, log.sourceId),
+    taskId: log.taskId || "",
+    sourceType: log.sourceType,
+    sourceId: log.sourceId,
+    title,
+    tags: tagPathList(item.tagIds || []),
+    completedDate: log.date,
+    completedAt: log.createdAt || `${log.date}T00:00:00.000Z`,
+    recallPercent: log.recallPercent,
+    source: "memory-review-app",
+  };
+}
+
+function publishBridgeReviewSnapshot() {
+  const bridge = readBridgeState();
+  const today = toDateInput(new Date());
+  const dueReviews = state.tasks
+    .filter((task) => task.status === "pending" && task.scheduledDate <= today && findItem(task.sourceType, task.sourceId))
+    .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate) || (b.priority || 0) - (a.priority || 0))
+    .map(bridgeTaskPayload)
+    .filter(Boolean);
+  const completedReviews = buildReviewedTodayTasks()
+    .map(bridgeCompletedPayload)
+    .filter(Boolean);
+  writeBridgeState({
+    ...bridge,
+    dueReviews,
+    completedReviews,
+  });
+}
+
+function bindBridgeEvents() {
+  window.addEventListener("storage", (event) => {
+    if (event.key !== PSYCH312_BRIDGE_KEY) return;
+    consumeBridgeReviewCompletions();
+  });
+}
+
+function bridgeCompletionInput(name, value) {
+  const input = document.createElement("input");
+  input.name = name;
+  input.value = value ?? "";
+  return input;
+}
+
+async function persistBridgeReviewCompletion(completion) {
+  const form = document.createElement("form");
+  form.id = "bridgeReviewForm";
+  form.append(
+    bridgeCompletionInput("sourceType", completion.sourceType),
+    bridgeCompletionInput("sourceId", completion.sourceId),
+    bridgeCompletionInput("taskId", completion.taskId || ""),
+    bridgeCompletionInput("logId", ""),
+    bridgeCompletionInput("recallPercent", completion.recallPercent ?? 80),
+    bridgeCompletionInput("notes", completion.notes || "312打卡页记录完成。"),
+    bridgeCompletionInput("date", completion.completedDate || String(completion.completedAt || "").slice(0, 10) || toDateInput(new Date()))
+  );
+  return persistReviewForm(form);
+}
+
+function updateBridgeCompletion(completionId, patch) {
+  const bridge = readBridgeState();
+  bridge.reviewCompletions = bridge.reviewCompletions.map((completion) => (
+    completion.id === completionId ? { ...completion, ...patch, updatedAt: now() } : completion
+  ));
+  writeBridgeState(bridge);
+}
+
+async function consumeBridgeReviewCompletions() {
+  if (bridgeCompletionProcessing) return;
+  bridgeCompletionProcessing = true;
+  try {
+    const bridge = readBridgeState();
+    const pending = bridge.reviewCompletions.filter((completion) => completion.source === "psych312" && completion.status === "pending");
+    if (!pending.length) return;
+    for (const completion of pending) {
+      if (!findItem(completion.sourceType, completion.sourceId)) {
+        updateBridgeCompletion(completion.id, { status: "failed", error: "没有找到对应复习内容" });
+        continue;
+      }
+      const saved = await persistBridgeReviewCompletion(completion);
+      updateBridgeCompletion(completion.id, saved
+        ? { status: "consumed", consumedAt: now(), error: "" }
+        : { status: "failed", error: "复习日期晚于今天或保存失败" });
+    }
+    await loadState();
+    publishBridgeReviewSnapshot();
+    render();
+  } finally {
+    bridgeCompletionProcessing = false;
+  }
+}
+
+function markBridgeDraft(draftId, patch) {
+  const bridge = readBridgeState();
+  bridge.learningDrafts = bridge.learningDrafts.map((draft) => (
+    draft.id === draftId ? { ...draft, ...patch, updatedAt: now() } : draft
+  ));
+  writeBridgeState(bridge);
+}
+
+async function handleBridgeLaunchDraft() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("from") !== "312") return;
+  const draftId = params.get("draftId") || "";
+  if (!draftId) return;
+  const draft = readBridgeState().learningDrafts.find((item) => item.id === draftId);
+  if (!draft || draft.status === "saved") {
+    toast("没有找到可确认的312学习草稿。");
+    return;
+  }
+  prepareNewStudyForm();
+  const form = document.getElementById("studyForm");
+  formField(form, "title").value = draft.title || "";
+  formField(form, "date").value = draft.date || toDateInput(new Date());
+  formField(form, "studyKind").value = "new";
+  formField(form, "tags").value = Array.isArray(draft.tags) ? draft.tags.join("，") : "";
+  formField(form, "notes").value = draft.notes || "";
+  activeBridgeDraftId = draftId;
+  renderSelectedTagChips();
+  markBridgeDraft(draftId, { status: "opened", openedAt: now() });
+  openModal("studyModal");
+  toast("已载入312打卡页的新学草稿，确认后保存即可加入复习计划。");
+}
+
 function bindEvents() {
   document.querySelectorAll(".nav-item").forEach((button) => {
     button.addEventListener("click", () => switchView(button.dataset.view));
@@ -147,6 +339,9 @@ function bindEvents() {
 
   document.querySelectorAll("[data-close-modal]").forEach((button) => {
     button.addEventListener("click", () => button.closest("dialog").close());
+  });
+  document.getElementById("studyModal").addEventListener("close", () => {
+    activeBridgeDraftId = "";
   });
 
   document.getElementById("studyForm").addEventListener("submit", saveStudy);
@@ -1414,6 +1609,10 @@ async function saveStudy(event) {
   };
   await put("study", item);
   if (!existing) await createNextTask("study", item, item.date);
+  if (!existing && activeBridgeDraftId) {
+    markBridgeDraft(activeBridgeDraftId, { status: "saved", savedAt: now(), studyId: item.id });
+    activeBridgeDraftId = "";
+  }
   await refreshSchedule();
   form.reset();
   setDefaultDates();
@@ -2400,6 +2599,7 @@ async function refreshSchedule() {
   await loadState();
   await rebalanceReviewQueue();
   await loadState();
+  publishBridgeReviewSnapshot();
 }
 
 async function dedupePendingReviewTasks() {
