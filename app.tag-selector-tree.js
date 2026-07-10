@@ -153,6 +153,7 @@ function readBridgeState() {
       completedReviews: Array.isArray(parsed.completedReviews) ? parsed.completedReviews : [],
       reviewCompletions: Array.isArray(parsed.reviewCompletions) ? parsed.reviewCompletions : [],
       reviewDrafts: Array.isArray(parsed.reviewDrafts) ? parsed.reviewDrafts : [],
+      reviewBindings: parsed.reviewBindings && typeof parsed.reviewBindings === "object" ? parsed.reviewBindings : {},
       learningDrafts: Array.isArray(parsed.learningDrafts) ? parsed.learningDrafts : [],
       studyIndex: Array.isArray(parsed.studyIndex) ? parsed.studyIndex : [],
       updatedAt: parsed.updatedAt || "",
@@ -164,6 +165,7 @@ function readBridgeState() {
       completedReviews: [],
       reviewCompletions: [],
       reviewDrafts: [],
+      reviewBindings: {},
       learningDrafts: [],
       studyIndex: [],
       updatedAt: "",
@@ -486,10 +488,11 @@ function showCodexReviewDraft(draft) {
 }
 
 function codexReviewCandidates(draft) {
-  const preferredSourceId = draft.target?.sourceId || "";
+  const localBinding = readBridgeState().reviewBindings?.[normalizeReviewChapterKey(draft.title || "")];
+  const preferredSourceId = draft.target?.sourceId || localBinding?.sourceId || "";
   const direct = preferredSourceId ? state.study.find((item) => item.id === preferredSourceId) : null;
   if (direct) {
-    return [{ study: direct, score: 100, reason: "已绑定 sourceId", taskId: nextTaskDate("study", direct.id) ? bridgeStudyIndexPayload(direct).taskId : "" }];
+    return [{ study: direct, score: 100, reason: "已确认绑定", taskId: nextTaskDate("study", direct.id) ? bridgeStudyIndexPayload(direct).taskId : "" }];
   }
   const target = parseReviewChapterName(draft.title || `${draft.subject} ${draft.chapter}`);
   return state.study
@@ -605,6 +608,7 @@ async function confirmActiveCodexReviewDraft() {
     title: study.title,
     confirmedAt: now(),
   });
+  saveCodexReviewBinding(draft.title, study);
   await loadState();
   publishBridgeReviewSnapshot();
   render();
@@ -627,6 +631,21 @@ function markCodexReviewDraft(draftId, patch) {
   bridge.reviewDrafts = bridge.reviewDrafts.map((draft) => (
     draft.draftId === draftId ? { ...draft, ...patch, updatedAt: now() } : draft
   ));
+  writeBridgeState(bridge);
+}
+
+function saveCodexReviewBinding(chapterKey, study) {
+  const bridge = readBridgeState();
+  bridge.reviewBindings = {
+    ...(bridge.reviewBindings || {}),
+    [normalizeReviewChapterKey(chapterKey)]: {
+      sourceType: "study",
+      sourceId: study.id,
+      title: study.title || "",
+      tagPaths: tagPathList(study.tagIds || []),
+      confirmedAt: now(),
+    },
+  };
   writeBridgeState(bridge);
 }
 
