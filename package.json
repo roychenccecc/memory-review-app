@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "mkdir -p dist && cp index.html app.js app.tag-selector-tree.js app.force-schedule-migration.js styles.css dist/"
+    "build": "node scripts/build-sites.cjs"
   },
   "dependencies": {},
   "devDependencies": {}
