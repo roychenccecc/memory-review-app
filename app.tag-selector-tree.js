@@ -490,60 +490,28 @@ function showCodexReviewDraft(draft) {
 function codexReviewCandidates(draft) {
   const localBinding = readBridgeState().reviewBindings?.[normalizeReviewChapterKey(draft.title || "")];
   const preferredSourceId = draft.target?.sourceId || localBinding?.sourceId || "";
-  const direct = preferredSourceId ? state.study.find((item) => item.id === preferredSourceId) : null;
-  if (direct) {
-    return [{ study: direct, score: 100, reason: "已确认绑定", taskId: nextTaskDate("study", direct.id) ? bridgeStudyIndexPayload(direct).taskId : "" }];
-  }
-  const target = parseReviewChapterName(draft.title || `${draft.subject} ${draft.chapter}`);
-  return state.study
-    .map((study) => scoreCodexStudyMatch(target, study))
-    .filter((candidate) => candidate.score >= 65)
-    .sort((a, b) => b.score - a.score || (b.study.lastReviewedAt || "").localeCompare(a.study.lastReviewedAt || ""))
-    .slice(0, 3);
+  const rows = state.study.map((study) => ({
+    ...bridgeStudyIndexPayload(study),
+    study,
+  }));
+  return window.ReviewMatcher.rankCandidates(
+    draft.title || `${draft.subject} ${draft.chapter}`,
+    rows,
+    { preferredSourceId, minimumScore: 55, limit: 5 },
+  );
 }
 
 function scoreCodexStudyMatch(target, study) {
-  const titleParts = parseReviewChapterName(study.title || "");
-  const tagPaths = tagPathList(study.tagIds || []);
-  let score = 0;
-  const reasons = [];
-  if (target.subject && titleParts.subject && target.subject !== titleParts.subject) {
-    return { study, score: 0, reason: "科目不同", taskId: "" };
-  }
-  if (target.subject && titleParts.subject === target.subject) {
-    score += 35;
-    reasons.push("科目一致");
-  }
-  if (target.chapter && titleParts.chapter === target.chapter) {
-    score += 40;
-    reasons.push("标题章节一致");
-  } else if (target.chapter && normalizeLooseText(study.title).includes(target.chapter)) {
-    score += 25;
-    reasons.push("标题包含章节");
-  }
-  const targetPathTokens = [target.subject, target.chapter].filter(Boolean);
-  const hasPathMatch = tagPaths.some((pathValue) => {
-    const normalizedPath = normalizeLooseText(pathValue);
-    return targetPathTokens.every((token) => normalizedPath.includes(token));
-  });
-  if (hasPathMatch) {
-    score += 35;
-    reasons.push("知识点路径一致");
-  }
   const pendingTask = buildDisplayTasks()
     .filter((task) => task.status === "pending" && task.sourceType === "study" && task.sourceId === study.id)
     .sort(taskSort)[0];
-  if (pendingTask) {
-    score += 5;
-    reasons.push("有待复习任务");
-  }
-  if (!target.subject || !target.chapter) score -= 20;
-  return {
+  return window.ReviewMatcher.scoreCandidate(target, {
     study,
-    score: clamp(score, 0, 100),
-    reason: reasons.join("，") || "弱匹配",
+    sourceId: study.id,
+    title: study.title || "",
+    tagPaths: tagPathList(study.tagIds || []),
     taskId: pendingTask?.id || "",
-  };
+  });
 }
 
 function parseReviewChapterName(value) {
@@ -611,9 +579,58 @@ async function confirmActiveCodexReviewDraft() {
   saveCodexReviewBinding(draft.title, study);
   await loadState();
   publishBridgeReviewSnapshot();
+  let autoSyncDownloaded = false;
+  try {
+    await downloadReviewAutoSync(draft, study, saved);
+    autoSyncDownloaded = true;
+  } catch (error) {
+    console.error("Codex review auto-sync download failed", error);
+  }
   render();
   document.getElementById("codexReviewDraftModal").close();
-  toast(saved.duplicate ? "这条 Codex 记录此前已经写入。" : "Codex 复习记录已写入。");
+  if (!autoSyncDownloaded) {
+    toast("记录已写入复习管理器，但自动同步文件下载失败，请保留此页面并告知 Codex。");
+  } else {
+    toast(saved.duplicate ? "记录已存在，确认回执已重新下载。" : "记录已写入，确认回执已自动下载。");
+  }
+}
+
+async function downloadReviewAutoSync(draft, study, saved) {
+  const generatedAt = now();
+  const basePayload = {
+    format_version: 1,
+    generated_at: generatedAt,
+    confirmation: {
+      draft_id: draft.draftId || "",
+      session_id: draft.sessionId || "",
+      source_type: saved.sourceType || "study",
+      source_id: saved.sourceId || study.id,
+      manager_log_id: saved.logId || "",
+      title: study.title || "",
+      date: saved.date || draft.date || toDateInput(new Date()),
+      result: saved.result || resultFromPercent(saved.recallPercent),
+      recall_percent: saved.recallPercent,
+      section_scores: saved.sectionScores || draft.sectionScores || [],
+      notes: saved.notes || draft.notes || "",
+      duplicate: Boolean(saved.duplicate),
+    },
+    state: structuredClone(state),
+    bridge: readBridgeState(),
+  };
+  const contentHash = await sha256Hex(JSON.stringify(basePayload));
+  const payload = { ...basePayload, content_hash: contentHash };
+  const safeDraftId = String(draft.draftId || "review")
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 100) || "review";
+  const filename = `memory-review-auto-sync-${toDateInput(new Date())}-${safeDraftId}.json`;
+  download(filename, `${JSON.stringify(payload, null, 2)}\n`, "application/json");
+}
+
+async function sha256Hex(value) {
+  if (!window.crypto?.subtle) throw new Error("Web Crypto is unavailable");
+  const digest = await window.crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function rejectActiveCodexReviewDraft() {
@@ -2462,12 +2479,34 @@ async function persistReviewForm(form) {
     return null;
   }
   if (externalDraftId && state.logs.some((log) => log.externalDraftId === externalDraftId)) {
-    return { duplicate: true, updated: false, sourceType, sourceId, recallPercent };
+    const existingLog = state.logs.find((log) => log.externalDraftId === externalDraftId);
+    return {
+      duplicate: true,
+      updated: false,
+      sourceType,
+      sourceId,
+      logId: existingLog.id,
+      recallPercent: existingLog.recallPercent,
+      result: existingLog.result,
+      sectionScores: existingLog.sectionScores || [],
+      notes: existingLog.notes || "",
+      date: existingLog.date,
+    };
   }
 
   if (logId) {
     await updateReviewLog({ logId, sourceType, sourceId, taskId, recallPercent, result, notes: data.get("notes").trim(), sectionScores, date: logDate });
-    return { updated: true, sourceType, sourceId, recallPercent };
+    return {
+      updated: true,
+      sourceType,
+      sourceId,
+      logId,
+      recallPercent,
+      result,
+      sectionScores,
+      notes: data.get("notes").trim(),
+      date: logDate,
+    };
   }
 
   const logCreatedAt = now();
@@ -2549,7 +2588,17 @@ async function persistReviewForm(form) {
     }
   }
   await refreshSchedule();
-  return { updated: false, sourceType, sourceId, recallPercent };
+  return {
+    updated: false,
+    sourceType,
+    sourceId,
+    logId: newLogId,
+    recallPercent,
+    result,
+    sectionScores,
+    notes: data.get("notes").trim(),
+    date: logDate,
+  };
 }
 
 function collectStudySectionScores(form, sourceType) {
