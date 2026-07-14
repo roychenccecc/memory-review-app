@@ -23,6 +23,8 @@ const TYPE_LABEL = { study: "学习", mistake: "错题" };
 const STUDY_KIND_LABEL = { new: "新学", review: "复习" };
 const DEFAULT_QUESTION_TYPES = ["选择题", "简答题", "综合题", "计算题"];
 const PSYCH312_BRIDGE_KEY = "psych312-memory-review-bridge-v1";
+const CODEX_REVIEW_HASH_PARAM = "codexReviewDraft";
+const CODEX_REVIEW_SOURCE = "codex-312-review-assistant";
 
 let db;
 let pastedMistakeImage = "";
@@ -36,6 +38,7 @@ let selectedTreeParentIds = { study: "", mistake: "" };
 let tagPickerCollapsedIds = { study: new Set(), mistake: new Set() };
 let weakTagsCollapsed = localStorage.getItem("weakTagsCollapsed") === "1";
 let activeBridgeDraftId = "";
+let activeCodexReviewDraftId = "";
 let bridgeCompletionProcessing = false;
 let state = {
   settings: {
@@ -65,8 +68,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   setDefaultDates();
   render();
   bindBridgeEvents();
+  ensureCodexReviewDraftDialog();
+  publishBridgeReviewSnapshot();
   await consumeBridgeReviewCompletions();
   await handleBridgeLaunchDraft();
+  await handleCodexReviewDraftFromHash();
   if (repairedLegacyTags) toast(`已修复 ${repairedLegacyTags} 条旧的顿号误拆标签。`);
   if (repairedReviewChains) toast(`已重新计算 ${repairedReviewChains} 条内容的复习分数链。`);
 });
@@ -154,7 +160,10 @@ function readBridgeState() {
       dueReviews: Array.isArray(parsed.dueReviews) ? parsed.dueReviews : [],
       completedReviews: Array.isArray(parsed.completedReviews) ? parsed.completedReviews : [],
       reviewCompletions: Array.isArray(parsed.reviewCompletions) ? parsed.reviewCompletions : [],
+      reviewDrafts: Array.isArray(parsed.reviewDrafts) ? parsed.reviewDrafts : [],
+      reviewBindings: parsed.reviewBindings && typeof parsed.reviewBindings === "object" ? parsed.reviewBindings : {},
       learningDrafts: Array.isArray(parsed.learningDrafts) ? parsed.learningDrafts : [],
+      studyIndex: Array.isArray(parsed.studyIndex) ? parsed.studyIndex : [],
       updatedAt: parsed.updatedAt || "",
     };
   } catch {
@@ -163,7 +172,10 @@ function readBridgeState() {
       dueReviews: [],
       completedReviews: [],
       reviewCompletions: [],
+      reviewDrafts: [],
+      reviewBindings: {},
       learningDrafts: [],
+      studyIndex: [],
       updatedAt: "",
     };
   }
@@ -220,6 +232,23 @@ function bridgeCompletedPayload(log) {
   };
 }
 
+function bridgeStudyIndexPayload(item) {
+  const pendingTask = buildDisplayTasks()
+    .filter((task) => task.status === "pending" && task.sourceType === "study" && task.sourceId === item.id)
+    .sort(taskSort)[0];
+  return {
+    sourceType: "study",
+    sourceId: item.id,
+    title: item.title || "",
+    tagPaths: tagPathList(item.tagIds || []),
+    memoryScore: currentScore(item),
+    lastReviewedAt: item.lastReviewedAt || "",
+    taskId: pendingTask?.id || "",
+    scheduledDate: pendingTask?.scheduledDate || "",
+    source: "memory-review-app",
+  };
+}
+
 function publishBridgeReviewSnapshot() {
   const bridge = readBridgeState();
   const today = currentReviewDate();
@@ -235,6 +264,7 @@ function publishBridgeReviewSnapshot() {
     ...bridge,
     dueReviews,
     completedReviews,
+    studyIndex: state.study.map(bridgeStudyIndexPayload),
   });
 }
 
@@ -298,6 +328,350 @@ async function consumeBridgeReviewCompletions() {
   } finally {
     bridgeCompletionProcessing = false;
   }
+}
+
+function ensureCodexReviewDraftDialog() {
+  if (document.getElementById("codexReviewDraftModal")) return;
+  document.body.insertAdjacentHTML("beforeend", `
+    <dialog id="codexReviewDraftModal">
+      <section class="modal-card">
+        <div class="modal-head">
+          <h3>Codex 待确认复习记录</h3>
+          <button class="icon-button" id="closeCodexReviewDraftBtn" type="button">×</button>
+        </div>
+        <div class="modal-section" id="codexReviewDraftSummary"></div>
+        <div class="modal-section">
+          <h4>写入到已有学习记录</h4>
+          <p class="muted">只允许选择已有学习记录；这里不会新增学习、知识点或错题。</p>
+          <select id="codexReviewTargetSelect"></select>
+          <p class="warning-text hidden" id="codexReviewDraftWarning"></p>
+        </div>
+        <div class="modal-actions">
+          <button class="secondary danger" id="rejectCodexReviewDraftBtn" type="button">拒绝草稿</button>
+          <button class="primary" id="confirmCodexReviewDraftBtn" type="button">确认写入复习记录</button>
+        </div>
+      </section>
+    </dialog>
+  `);
+  document.getElementById("closeCodexReviewDraftBtn").addEventListener("click", () => {
+    document.getElementById("codexReviewDraftModal").close();
+  });
+  document.getElementById("rejectCodexReviewDraftBtn").addEventListener("click", rejectActiveCodexReviewDraft);
+  document.getElementById("confirmCodexReviewDraftBtn").addEventListener("click", confirmActiveCodexReviewDraft);
+}
+
+async function handleCodexReviewDraftFromHash() {
+  const draft = readCodexReviewDraftFromHash();
+  if (!draft) {
+    showNextCodexReviewDraft();
+    return;
+  }
+  clearCodexReviewHash();
+  const normalized = normalizeCodexReviewDraft(draft);
+  if (!normalized) {
+    toast("Codex 复习草稿格式无效。");
+    showNextCodexReviewDraft();
+    return;
+  }
+  const bridge = readBridgeState();
+  const existingLog = state.logs.find((log) => log.externalDraftId === normalized.draftId);
+  const existingDraft = bridge.reviewDrafts.find((item) => item.draftId === normalized.draftId);
+  if (existingLog) {
+    toast("这条 Codex 复习记录已经写入过。");
+    showNextCodexReviewDraft();
+    return;
+  }
+  if (existingDraft) {
+    if (existingDraft.status === "pending") showCodexReviewDraft(existingDraft);
+    else toast("这条 Codex 复习草稿已经处理过。");
+    return;
+  }
+  bridge.reviewDrafts = [
+    {
+      ...normalized,
+      status: "pending",
+      createdAt: now(),
+      updatedAt: now(),
+    },
+    ...bridge.reviewDrafts,
+  ];
+  writeBridgeState(bridge);
+  showCodexReviewDraft(normalized);
+}
+
+function readCodexReviewDraftFromHash() {
+  const hash = window.location.hash.replace(/^#/, "");
+  if (!hash) return null;
+  const params = new URLSearchParams(hash);
+  const encoded = params.get(CODEX_REVIEW_HASH_PARAM);
+  if (!encoded) return null;
+  try {
+    return JSON.parse(decodeBase64UrlUtf8(encoded));
+  } catch {
+    try {
+      return JSON.parse(decodeURIComponent(encoded));
+    } catch {
+      return null;
+    }
+  }
+}
+
+function clearCodexReviewHash() {
+  if (!window.location.hash.includes(CODEX_REVIEW_HASH_PARAM)) return;
+  history.replaceState(null, document.title, `${window.location.pathname}${window.location.search}`);
+}
+
+function decodeBase64UrlUtf8(value) {
+  const normalized = String(value || "").replaceAll("-", "+").replaceAll("_", "/");
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+  const binary = atob(padded);
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+function normalizeCodexReviewDraft(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const target = raw.target && typeof raw.target === "object" ? raw.target : {};
+  const subject = String(raw.subject || target.subject || "").trim();
+  const chapter = String(raw.chapter || target.chapter || "").trim();
+  const fallbackTitle = normalizeReviewChapterKey(`${subject} ${chapter}`);
+  const title = normalizeReviewChapterKey(target.title || raw.title || fallbackTitle);
+  const score = clamp(Number(raw.overallScore ?? raw.recallPercent ?? raw.score ?? 0), 0, 100);
+  const draftId = String(raw.draftId || "").trim();
+  if (!draftId || !title || !Number.isFinite(score)) return null;
+  return {
+    version: 1,
+    source: CODEX_REVIEW_SOURCE,
+    draftId,
+    sessionId: String(raw.sessionId || "").trim(),
+    date: reviewDateFromTimestamp(raw.date),
+    subject,
+    chapter,
+    title,
+    target: {
+      sourceType: "study",
+      sourceId: String(target.sourceId || "").trim(),
+      title,
+      tagPath: String(target.tagPath || "").trim(),
+    },
+    overallScore: score,
+    sectionScores: Array.isArray(raw.sectionScores) ? raw.sectionScores : [],
+    notes: String(raw.notes || "").trim(),
+  };
+}
+
+function showNextCodexReviewDraft() {
+  const pending = readBridgeState().reviewDrafts.find((draft) => draft.status === "pending");
+  if (pending) showCodexReviewDraft(pending);
+}
+
+function showCodexReviewDraft(draft) {
+  ensureCodexReviewDraftDialog();
+  activeCodexReviewDraftId = draft.draftId;
+  const candidates = codexReviewCandidates(draft);
+  const summary = document.getElementById("codexReviewDraftSummary");
+  summary.innerHTML = `
+    <h4>${escapeHtml(draft.title || "未命名章节")}</h4>
+    <div class="meta">
+      <span>${escapeHtml(draft.date || currentReviewDate())}</span>
+      <span>记忆分 ${Number(draft.overallScore)}%</span>
+      <span>来源：Codex 复习助手</span>
+    </div>
+    ${draft.notes ? `<p class="body-text">${escapeHtml(draft.notes)}</p>` : '<p class="body-text muted">没有备注。</p>'}
+  `;
+  const select = document.getElementById("codexReviewTargetSelect");
+  select.innerHTML = candidates.length
+    ? candidates.map((candidate) => `
+      <option value="${escapeAttr(candidate.study.id)}" data-task-id="${escapeAttr(candidate.taskId || "")}">
+        ${escapeHtml(candidate.study.title)} · 匹配度 ${candidate.score} · ${escapeHtml(candidate.reason)}
+      </option>
+    `).join("")
+    : '<option value="">没有找到可写入的已有学习记录</option>';
+  select.disabled = !candidates.length;
+  const warning = document.getElementById("codexReviewDraftWarning");
+  warning.classList.toggle("hidden", Boolean(candidates.length));
+  warning.textContent = candidates.length ? "" : "没有匹配到已有学习记录。请先在复习管理器中手动建立对应学习项目，再重新打开这条草稿。";
+  document.getElementById("confirmCodexReviewDraftBtn").disabled = !candidates.length;
+  openModal("codexReviewDraftModal");
+}
+
+function codexReviewCandidates(draft) {
+  const localBinding = readBridgeState().reviewBindings?.[normalizeReviewChapterKey(draft.title || "")];
+  const preferredSourceId = draft.target?.sourceId || localBinding?.sourceId || "";
+  const rows = state.study.map((study) => ({
+    ...bridgeStudyIndexPayload(study),
+    study,
+  }));
+  return window.ReviewMatcher.rankCandidates(
+    draft.title || `${draft.subject} ${draft.chapter}`,
+    rows,
+    { preferredSourceId, minimumScore: 55, limit: 5 },
+  );
+}
+
+function scoreCodexStudyMatch(target, study) {
+  const pendingTask = buildDisplayTasks()
+    .filter((task) => task.status === "pending" && task.sourceType === "study" && task.sourceId === study.id)
+    .sort(taskSort)[0];
+  return window.ReviewMatcher.scoreCandidate(target, {
+    study,
+    sourceId: study.id,
+    title: study.title || "",
+    tagPaths: tagPathList(study.tagIds || []),
+    taskId: pendingTask?.id || "",
+  });
+}
+
+function parseReviewChapterName(value) {
+  const normalized = normalizeReviewChapterKey(value);
+  const [rawSubject = "", ...rest] = normalized.split(" ");
+  return {
+    subject: normalizeReviewSubject(rawSubject),
+    chapter: normalizeLooseText(rest.join(" ")),
+  };
+}
+
+function normalizeReviewChapterKey(value) {
+  return String(value || "")
+    .replace(/[《》"'“”‘’]/g, "")
+    .replace(/[>＞/\\\-—_：:，,、]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeReviewSubject(value) {
+  const subject = normalizeLooseText(value);
+  if (subject === "普通心理学" || subject === "普心") return "普心";
+  return subject;
+}
+
+function normalizeLooseText(value) {
+  return String(value || "")
+    .replace(/[《》"'“”‘’\s>＞/\\\-—_：:，,、。.!！?？()（）[\]【】]/g, "")
+    .trim();
+}
+
+async function confirmActiveCodexReviewDraft() {
+  const draft = readBridgeState().reviewDrafts.find((item) => item.draftId === activeCodexReviewDraftId);
+  if (!draft) return;
+  const select = document.getElementById("codexReviewTargetSelect");
+  const sourceId = select.value;
+  const selectedOption = select.selectedOptions[0];
+  const study = state.study.find((item) => item.id === sourceId);
+  if (!study) {
+    toast("请选择一个已有学习记录。");
+    return;
+  }
+  const form = document.createElement("form");
+  form.id = "codexReviewForm";
+  form.append(
+    bridgeCompletionInput("sourceType", "study"),
+    bridgeCompletionInput("sourceId", study.id),
+    bridgeCompletionInput("taskId", selectedOption?.dataset.taskId || ""),
+    bridgeCompletionInput("logId", ""),
+    bridgeCompletionInput("recallPercent", draft.overallScore ?? 80),
+    bridgeCompletionInput("notes", draft.notes || "Codex 复习助手记录完成。"),
+    bridgeCompletionInput("date", draft.date || currentReviewDate()),
+    bridgeCompletionInput("externalDraftId", draft.draftId),
+    bridgeCompletionInput("externalSource", CODEX_REVIEW_SOURCE),
+    bridgeCompletionInput("sectionScoresJson", JSON.stringify(draft.sectionScores || []))
+  );
+  const saved = await persistReviewForm(form);
+  if (!saved) return;
+  markCodexReviewDraft(draft.draftId, {
+    status: "confirmed",
+    sourceId: study.id,
+    title: study.title,
+    confirmedAt: now(),
+  });
+  saveCodexReviewBinding(draft.title, study);
+  await loadState();
+  publishBridgeReviewSnapshot();
+  let autoSyncDownloaded = false;
+  try {
+    await downloadReviewAutoSync(draft, study, saved);
+    autoSyncDownloaded = true;
+  } catch (error) {
+    console.error("Codex review auto-sync download failed", error);
+  }
+  render();
+  document.getElementById("codexReviewDraftModal").close();
+  if (!autoSyncDownloaded) {
+    toast("记录已写入复习管理器，但自动同步文件下载失败，请保留此页面并告知 Codex。");
+  } else {
+    toast(saved.duplicate ? "记录已存在，确认回执已重新下载。" : "记录已写入，确认回执已自动下载。");
+  }
+}
+
+async function downloadReviewAutoSync(draft, study, saved) {
+  const generatedAt = now();
+  const basePayload = {
+    format_version: 1,
+    generated_at: generatedAt,
+    confirmation: {
+      draft_id: draft.draftId || "",
+      session_id: draft.sessionId || "",
+      source_type: saved.sourceType || "study",
+      source_id: saved.sourceId || study.id,
+      manager_log_id: saved.logId || "",
+      title: study.title || "",
+      date: saved.date || draft.date || currentReviewDate(),
+      result: saved.result || resultFromPercent(saved.recallPercent),
+      recall_percent: saved.recallPercent,
+      section_scores: saved.sectionScores || draft.sectionScores || [],
+      notes: saved.notes || draft.notes || "",
+      duplicate: Boolean(saved.duplicate),
+    },
+    state: structuredClone(state),
+    bridge: readBridgeState(),
+  };
+  const contentHash = await sha256Hex(JSON.stringify(basePayload));
+  const payload = { ...basePayload, content_hash: contentHash };
+  const safeDraftId = String(draft.draftId || "review")
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 100) || "review";
+  const filename = `memory-review-auto-sync-${toDateInput(new Date())}-${safeDraftId}.json`;
+  download(filename, `${JSON.stringify(payload, null, 2)}\n`, "application/json");
+}
+
+async function sha256Hex(value) {
+  if (!window.crypto?.subtle) throw new Error("Web Crypto is unavailable");
+  const digest = await window.crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function rejectActiveCodexReviewDraft() {
+  if (!activeCodexReviewDraftId) return;
+  markCodexReviewDraft(activeCodexReviewDraftId, {
+    status: "rejected",
+    rejectedAt: now(),
+  });
+  document.getElementById("codexReviewDraftModal").close();
+  toast("已拒绝这条 Codex 复习草稿。");
+}
+
+function markCodexReviewDraft(draftId, patch) {
+  const bridge = readBridgeState();
+  bridge.reviewDrafts = bridge.reviewDrafts.map((draft) => (
+    draft.draftId === draftId ? { ...draft, ...patch, updatedAt: now() } : draft
+  ));
+  writeBridgeState(bridge);
+}
+
+function saveCodexReviewBinding(chapterKey, study) {
+  const bridge = readBridgeState();
+  bridge.reviewBindings = {
+    ...(bridge.reviewBindings || {}),
+    [normalizeReviewChapterKey(chapterKey)]: {
+      sourceType: "study",
+      sourceId: study.id,
+      title: study.title || "",
+      tagPaths: tagPathList(study.tagIds || []),
+      confirmedAt: now(),
+    },
+  };
+  writeBridgeState(bridge);
 }
 
 function markBridgeDraft(draftId, patch) {
@@ -1062,6 +1436,7 @@ function renderHistory() {
             <span>${TYPE_LABEL[log.sourceType]}</span>
             <span>${log.recallPercent != null ? `记住 ${log.recallPercent}%` : RESULT_LABEL[log.result]}</span>
             <span>分数 ${log.beforeScore} → ${log.afterScore}</span>
+            ${log.externalSource ? `<span>${escapeHtml(externalSourceLabel(log.externalSource))}</span>` : ""}
           </div>
           <h4 class="card-title">${escapeHtml(title)}</h4>
           ${log.notes ? `<p class="body-text">${escapeHtml(log.notes)}</p>` : ""}
@@ -1205,6 +1580,7 @@ function renderStudyHistoryList(study) {
         <span>${formatDate(log.date)}</span>
         <span>记住 ${Number(log.recallPercent ?? log.afterScore ?? 0)}%</span>
         <span>分数 ${Number(log.beforeScore ?? 0)} → ${Number(log.afterScore ?? 0)}</span>
+        ${log.externalSource ? `<span>${escapeHtml(externalSourceLabel(log.externalSource))}</span>` : ""}
       </div>
       ${log.notes ? `<p class="body-text">${escapeHtml(log.notes)}</p>` : '<p class="body-text muted">没有填写本次备注。</p>'}
       ${renderSectionScoreSummary(log.sectionScores)}
@@ -2095,6 +2471,8 @@ async function persistReviewForm(form) {
   const sourceId = data.get("sourceId");
   const taskId = data.get("taskId");
   const logId = data.get("logId");
+  const externalDraftId = String(data.get("externalDraftId") || "").trim();
+  const externalSource = String(data.get("externalSource") || "").trim();
   const sectionScores = collectStudySectionScores(form, sourceType);
   const recallPercent = sectionScores.length
     ? weightedSectionScore(sectionScores)
@@ -2108,10 +2486,35 @@ async function persistReviewForm(form) {
     toast("复习日期不能晚于今天。");
     return null;
   }
+  if (externalDraftId && state.logs.some((log) => log.externalDraftId === externalDraftId)) {
+    const existingLog = state.logs.find((log) => log.externalDraftId === externalDraftId);
+    return {
+      duplicate: true,
+      updated: false,
+      sourceType,
+      sourceId,
+      logId: existingLog.id,
+      recallPercent: existingLog.recallPercent,
+      result: existingLog.result,
+      sectionScores: existingLog.sectionScores || [],
+      notes: existingLog.notes || "",
+      date: existingLog.date,
+    };
+  }
 
   if (logId) {
     await updateReviewLog({ logId, sourceType, sourceId, taskId, recallPercent, result, notes: data.get("notes").trim(), sectionScores, date: logDate });
-    return { updated: true, sourceType, sourceId, recallPercent };
+    return {
+      updated: true,
+      sourceType,
+      sourceId,
+      logId,
+      recallPercent,
+      result,
+      sectionScores,
+      notes: data.get("notes").trim(),
+      date: logDate,
+    };
   }
 
   const logCreatedAt = now();
@@ -2177,6 +2580,8 @@ async function persistReviewForm(form) {
     beforeInterval,
     afterIntervalIndex: nextIntervalState.index,
     afterInterval: nextIntervalState.interval,
+    externalDraftId,
+    externalSource,
     date: logDate,
     createdAt: logCreatedAt,
   });
@@ -2191,11 +2596,26 @@ async function persistReviewForm(form) {
     }
   }
   await refreshSchedule();
-  return { updated: false, sourceType, sourceId, recallPercent };
+  return {
+    updated: false,
+    sourceType,
+    sourceId,
+    logId: newLogId,
+    recallPercent,
+    result,
+    sectionScores,
+    notes: data.get("notes").trim(),
+    date: logDate,
+  };
 }
 
 function collectStudySectionScores(form, sourceType) {
-  if (sourceType !== "study" || form.id !== "studyRecordForm") return [];
+  if (sourceType !== "study") return [];
+  const directInput = form.querySelector("[name='sectionScoresJson']");
+  if (directInput?.value) {
+    return normalizeExternalSectionScores(directInput.value, form.querySelector("[name='sourceId']")?.value || "");
+  }
+  if (form.id !== "studyRecordForm") return [];
   return [...document.querySelectorAll("#studySectionScores .section-score-row")]
     .map((row) => ({
       tagId: row.dataset.tagId,
@@ -2205,6 +2625,33 @@ function collectStudySectionScores(form, sourceType) {
     .filter((section) => section.tagId);
 }
 
+function normalizeExternalSectionScores(rawJson, sourceId) {
+  let rows = [];
+  try {
+    rows = JSON.parse(rawJson);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(rows)) return [];
+  const study = findItem("study", sourceId);
+  if (!study) return [];
+  const allowedTagIds = new Set(study.tagIds || []);
+  const normalized = [];
+  const seen = new Set();
+  for (const row of rows) {
+    const tag = row?.tagId
+      ? state.tags.find((item) => item.id === row.tagId)
+      : findTagByPath(row?.tagPath || "");
+    if (!tag || !allowedTagIds.has(tag.id) || seen.has(tag.id)) continue;
+    seen.add(tag.id);
+    normalized.push({
+      tagId: tag.id,
+      score: clamp(Number(row.score ?? row.recallPercent ?? 0), 0, 100),
+      weight: Number(row.weight) || tagImportanceScoreWeight(tag),
+    });
+  }
+  return normalized;
+}
 function reviewScoreForLog(log, sourceType = "") {
   const recallPercent = Number(log?.recallPercent);
   if (Number.isFinite(recallPercent)) return clamp(recallPercent, 0, 100);
@@ -3735,6 +4182,10 @@ function renderTagRow(tags = []) {
 
 function importanceLabel(value) {
   return ({ veryHigh: "非常重要", high: "高重要性", medium: "中重要性", low: "低重要性" })[value] || "中重要性";
+}
+
+function externalSourceLabel(value) {
+  return value === CODEX_REVIEW_SOURCE ? "Codex 复习助手" : value;
 }
 
 function tagPath(tag, seen = new Set()) {
