@@ -6,9 +6,8 @@ const files = [
   { path: "/", source: "index.html", type: "text/html; charset=utf-8" },
   { path: "/index.html", source: "index.html", type: "text/html; charset=utf-8" },
   { path: "/styles.css", source: "styles.css", type: "text/css; charset=utf-8" },
+  { path: "/review-engine.js", source: "review-engine.js", type: "application/javascript; charset=utf-8" },
   { path: "/app.js", source: "app.js", type: "application/javascript; charset=utf-8" },
-  { path: "/app.tag-selector-tree.js", source: "app.tag-selector-tree.js", type: "application/javascript; charset=utf-8" },
-  { path: "/app.force-schedule-migration.js", source: "app.force-schedule-migration.js", type: "application/javascript; charset=utf-8" },
 ];
 
 const assets = {};

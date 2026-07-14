@@ -1,14 +1,22 @@
 const DB_NAME = "adaptive-memory-review";
 const DB_VERSION = 1;
 const STORES = ["settings", "tags", "study", "mistakes", "logs", "tasks"];
-const BASE_INTERVALS = [1, 2, 4, 7, 15, 30];
+const {
+  BASE_INTERVALS,
+  TAG_SCORE_WEIGHT,
+  addDays,
+  clamp,
+  diffDays,
+  intervalStateAfterReview,
+  maxDate,
+  minDate,
+  resultFromPercent,
+  reviewBusinessDate,
+  toDateInput,
+  weightedSectionScore,
+} = globalThis.ReviewEngine;
 const IMPORTANCE_WEIGHT = { veryHigh: 45, high: 30, medium: 15, low: 0 };
 const NEW_STUDY_PRIORITY_BONUS = 18;
-const TAG_SCORE_WEIGHT = { veryHigh: 5, high: 3, medium: 2, low: 1 };
-const TAG_STUDY_RATIO = 0.6;
-const TAG_MISTAKE_RATIO = 0.4;
-const MISTAKE_COUNT_PENALTY = 3;
-const MAX_MISTAKE_PENALTY = 18;
 const REVIEW_CHAIN_REPAIR_VERSION = "20260630-recompute-review-chain-v3";
 const RESULT_LABEL = { remembered: "熟记", unclear: "模糊", forgotten: "完全忘了" };
 const TYPE_LABEL = { study: "学习", mistake: "错题" };
@@ -188,7 +196,7 @@ function bridgeTaskPayload(task) {
     tags: tagPathList(item.tagIds || []),
     scheduledDate: task.scheduledDate,
     earliestDate: task.earliestDate || task.scheduledDate,
-    isOverdue: task.scheduledDate < toDateInput(new Date()),
+    isOverdue: task.scheduledDate < currentReviewDate(),
     priority: task.priority || 0,
     source: "memory-review-app",
   };
@@ -214,7 +222,7 @@ function bridgeCompletedPayload(log) {
 
 function publishBridgeReviewSnapshot() {
   const bridge = readBridgeState();
-  const today = toDateInput(new Date());
+  const today = currentReviewDate();
   const dueReviews = state.tasks
     .filter((task) => task.status === "pending" && task.scheduledDate <= today && findItem(task.sourceType, task.sourceId))
     .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate) || (b.priority || 0) - (a.priority || 0))
@@ -254,7 +262,7 @@ async function persistBridgeReviewCompletion(completion) {
     bridgeCompletionInput("logId", ""),
     bridgeCompletionInput("recallPercent", completion.recallPercent ?? 80),
     bridgeCompletionInput("notes", completion.notes || "312打卡页记录完成。"),
-    bridgeCompletionInput("date", completion.completedDate || String(completion.completedAt || "").slice(0, 10) || toDateInput(new Date()))
+    bridgeCompletionInput("date", completion.completedDate || reviewDateFromTimestamp(completion.completedAt))
   );
   return persistReviewForm(form);
 }
@@ -455,7 +463,7 @@ function switchView(view) {
 }
 
 function render() {
-  document.getElementById("todayText").textContent = `${formatDate(toDateInput(new Date()))} · 本地离线数据`;
+  document.getElementById("todayText").textContent = `${formatDate(currentReviewDate())} · 复习日 08:00 切换 · 本地离线数据`;
   document.getElementById("calendarSubscribeUrl").textContent = `${window.location.origin}/calendar.ics`;
   renderTagOptions();
   renderTagParentOptions();
@@ -476,7 +484,7 @@ function render() {
 function renderDashboard() {
   const tasks = buildDisplayTasks();
   const visibleTasks = tasks.filter((task) => !wasTaskReviewedToday(task));
-  const today = toDateInput(new Date());
+  const today = currentReviewDate();
   const due = visibleTasks.filter((task) => task.scheduledDate <= today && task.status === "pending");
   const overdue = due.filter((task) => task.scheduledDate < today);
   const cram = visibleTasks.filter((task) => task.isCram && task.status === "pending" && task.scheduledDate <= today);
@@ -582,7 +590,7 @@ function renderTaskCard(task) {
   const tags = tagsFor(item.tagIds);
   const title = task.sourceType === "study" ? item.title : item.location || firstLine(item.question) || "未命名错题";
   const detail = task.sourceType === "study" ? item.notes : item.reason;
-  const dateLabel = task.scheduledDate < toDateInput(new Date()) ? "逾期" : "计划";
+  const dateLabel = task.scheduledDate < currentReviewDate() ? "逾期" : "计划";
   const postponed = isPostponedBeyondToday(task);
   return `
     <article class="task-card">
@@ -1076,7 +1084,7 @@ function openStudyRecord(studyId, taskId = "") {
   formField(form, "sourceId").value = study.id;
   formField(form, "taskId").value = taskId || "";
   formField(form, "logId").value = "";
-  setReviewFormDate(form, toDateInput(new Date()));
+  setReviewFormDate(form, currentReviewDate());
   setStudyRecordRecallPercent(80);
   document.getElementById("studySectionScores").innerHTML = renderStudySectionScoreInputs(study);
   updateStudyRecordAggregateFromSections();
@@ -1235,7 +1243,7 @@ function openMistakeRecord(mistakeId, taskId = "") {
   formField(form, "sourceId").value = mistake.id;
   formField(form, "taskId").value = taskId || "";
   formField(form, "logId").value = "";
-  setReviewFormDate(form, toDateInput(new Date()));
+  setReviewFormDate(form, currentReviewDate());
   setMistakeRecordRecallPercent(80);
   document.getElementById("mistakeRecordHistoryList").innerHTML = renderMistakeHistoryList(mistake);
   openModal("mistakeHistoryModal");
@@ -2014,7 +2022,7 @@ function resetStudyRecordFormForNewLog() {
   formField(form, "logId").value = "";
   formField(form, "taskId").value = "";
   formField(form, "notes").value = "";
-  setReviewFormDate(form, toDateInput(new Date()));
+  setReviewFormDate(form, currentReviewDate());
   setText("studyRecordSubmitBtn", "保存本次记录");
   setStudyRecordRecallPercent(80);
   if (study) {
@@ -2028,7 +2036,7 @@ function resetMistakeRecordFormForNewLog() {
   formField(form, "logId").value = "";
   formField(form, "taskId").value = "";
   formField(form, "notes").value = "";
-  setReviewFormDate(form, toDateInput(new Date()));
+  setReviewFormDate(form, currentReviewDate());
   setText("mistakeRecordSubmitBtn", "保存本次记录");
   setMistakeRecordRecallPercent(80);
 }
@@ -2041,7 +2049,7 @@ function loadStudyLogIntoRecordForm(log) {
   formField(form, "sourceId").value = study.id;
   formField(form, "taskId").value = log.taskId || "";
   formField(form, "logId").value = log.id;
-  setReviewFormDate(form, log.date || toDateInput(new Date()));
+  setReviewFormDate(form, log.date || currentReviewDate());
   formField(form, "notes").value = log.notes || "";
   document.getElementById("studySectionScores").innerHTML = renderStudySectionScoreInputs(study);
   setStudyRecordRecallPercent(log.recallPercent ?? log.afterScore ?? currentScore(study));
@@ -2058,7 +2066,7 @@ function loadMistakeLogIntoRecordForm(log) {
   formField(form, "sourceId").value = mistake.id;
   formField(form, "taskId").value = log.taskId || "";
   formField(form, "logId").value = log.id;
-  setReviewFormDate(form, log.date || toDateInput(new Date()));
+  setReviewFormDate(form, log.date || currentReviewDate());
   formField(form, "notes").value = log.notes || "";
   setMistakeRecordRecallPercent(log.recallPercent ?? log.afterScore ?? currentScore(mistake));
   setText("mistakeRecordSubmitBtn", "保存修改");
@@ -2066,7 +2074,7 @@ function loadMistakeLogIntoRecordForm(log) {
 
 function setReviewFormDate(form, value) {
   const field = formField(form, "date");
-  const today = toDateInput(new Date());
+  const today = currentReviewDate();
   field.value = value || today;
   field.max = today;
 }
@@ -2094,7 +2102,7 @@ async function persistReviewForm(form) {
   const result = resultFromPercent(recallPercent);
   const item = findItem(sourceType, sourceId);
   if (!item) return null;
-  const today = toDateInput(new Date());
+  const today = currentReviewDate();
   const logDate = data.get("date") || today;
   if (logDate > today) {
     toast("复习日期不能晚于今天。");
@@ -2197,12 +2205,6 @@ function collectStudySectionScores(form, sourceType) {
     .filter((section) => section.tagId);
 }
 
-function weightedSectionScore(sectionScores = []) {
-  const totalWeight = sectionScores.reduce((sum, section) => sum + (Number(section.weight) || 0), 0);
-  if (!totalWeight) return 0;
-  return Math.round(sectionScores.reduce((sum, section) => sum + Number(section.score) * Number(section.weight), 0) / totalWeight);
-}
-
 function reviewScoreForLog(log, sourceType = "") {
   const recallPercent = Number(log?.recallPercent);
   if (Number.isFinite(recallPercent)) return clamp(recallPercent, 0, 100);
@@ -2218,7 +2220,7 @@ async function updateReviewLog({ logId, sourceType, sourceId, taskId, recallPerc
   const log = state.logs.find((row) => row.id === logId);
   const item = findItem(sourceType, sourceId);
   if (!log || !item) return;
-  const nextDate = date || log.date || toDateInput(new Date());
+  const nextDate = date || log.date || currentReviewDate();
   const beforeScore = Number(log.beforeScore ?? currentScore(item));
   const afterScore = memoryScoreFromReview(sourceType, sourceId, {
     ...log,
@@ -2288,7 +2290,7 @@ async function updateReviewLog({ logId, sourceType, sourceId, taskId, recallPerc
 
   for (const task of state.tasks.filter((row) => row.status === "pending" && row.sourceType === sourceType && row.sourceId === sourceId)) {
     task.priority = priorityScore(item, Boolean(task.isCram));
-    if (intervalState && log.date === toDateInput(new Date())) {
+    if (intervalState && log.date === currentReviewDate()) {
       task.earliestDate = capAtExam(addDays(log.date, intervalState.interval)) || task.earliestDate || task.scheduledDate;
       task.scheduledDate = task.earliestDate || task.scheduledDate;
       task.intervalDays = intervalState.interval;
@@ -2374,7 +2376,7 @@ async function recomputeItemFromReviewLogs(sourceType, sourceId, options = {}) {
   }
   item.updatedAt = now();
   await put(sourceType === "study" ? "study" : "mistakes", item);
-  const nextFromDate = item.lastReviewedAt || item.date || item.createdAt?.slice(0, 10) || toDateInput(new Date());
+  const nextFromDate = item.lastReviewedAt || item.date || item.createdAt?.slice(0, 10) || currentReviewDate();
   const nextEarliestDate = capAtExam(addDays(nextFromDate, item.currentInterval || 1));
   for (const task of state.tasks.filter((row) => row.status === "pending" && row.sourceType === sourceType && row.sourceId === sourceId)) {
     if (nextEarliestDate && !task.isCram) {
@@ -2401,8 +2403,7 @@ function scoreFromReviewRows(sourceType, rows = []) {
     .filter((score) => Number.isFinite(score))
     .map((score) => clamp(score, 0, 100))
     .slice(0, 10);
-  if (!scores.length) return sourceType === "study" ? 70 : 60;
-  return sourceType === "mistake" ? weightedLatestMistakeScore(scores) : averageScores(scores);
+  return ReviewEngine.aggregateReviewScore(sourceType, scores);
 }
 
 async function repairReviewScoreChainsIfNeeded() {
@@ -2506,29 +2507,13 @@ function buildDisplayTasks() {
 }
 
 function applyDailyCapacity(tasks) {
-  const today = toDateInput(new Date());
-  const limit = dailyReviewLimit();
-  const counts = new Map([[today, Math.min(limit, reviewedTaskCountOn(today))]]);
-  return tasks
-    .map((task) => ({
-      ...task,
-      earliestDate: task.earliestDate || task.scheduledDate || today,
-    }))
-    .filter((task) => !state.settings.examDate || task.earliestDate <= state.settings.examDate)
-    .sort(taskQueueSort)
-    .map((task) => {
-      let scheduledDate = maxDate(task.earliestDate, today);
-      while ((counts.get(scheduledDate) || 0) >= limit) {
-        scheduledDate = addDays(scheduledDate, 1);
-        if (state.settings.examDate && scheduledDate > state.settings.examDate) break;
-      }
-      if (state.settings.examDate && scheduledDate > state.settings.examDate) {
-        return { ...task, scheduledDate: "" };
-      }
-      counts.set(scheduledDate, (counts.get(scheduledDate) || 0) + 1);
-      return { ...task, scheduledDate };
-    })
-    .filter((task) => task.scheduledDate);
+  const today = currentReviewDate();
+  return ReviewEngine.applyDailyCapacity(tasks, {
+    today,
+    limit: dailyReviewLimit(),
+    reviewedCount: reviewedTaskCountOn(today),
+    examDate: state.settings.examDate,
+  });
 }
 
 function reviewedTaskCountOn(date) {
@@ -2538,18 +2523,6 @@ function reviewedTaskCountOn(date) {
       .map((log) => `${log.sourceType}:${log.sourceId}`)
   );
   return reviewedSources.size;
-}
-
-function taskQueueSort(a, b) {
-  const today = toDateInput(new Date());
-  const aEarliest = a.earliestDate || a.scheduledDate || today;
-  const bEarliest = b.earliestDate || b.scheduledDate || today;
-  const aDue = aEarliest <= today;
-  const bDue = bEarliest <= today;
-  if (aDue && bDue && (a.priority || 0) !== (b.priority || 0)) return (b.priority || 0) - (a.priority || 0);
-  if (aDue !== bDue) return aDue ? -1 : 1;
-  if (aEarliest !== bEarliest) return aEarliest.localeCompare(bEarliest);
-  return (b.priority || 0) - (a.priority || 0);
 }
 
 function dedupeTaskListBySource(tasks) {
@@ -2578,12 +2551,12 @@ function taskSourceKey(task) {
 }
 
 function activePostponedUntil(task) {
-  const today = toDateInput(new Date());
+  const today = currentReviewDate();
   return task?.postponedUntil && task.postponedUntil >= today ? task.postponedUntil : "";
 }
 
 function isPostponedBeyondToday(task) {
-  const today = toDateInput(new Date());
+  const today = currentReviewDate();
   return Boolean(task?.postponedUntil && task.postponedUntil > today);
 }
 
@@ -2706,7 +2679,7 @@ async function rebalanceReviewQueue() {
 }
 
 function buildReviewedTodayTasks() {
-  const today = toDateInput(new Date());
+  const today = currentReviewDate();
   const seen = new Set();
   return state.logs
     .filter((log) => log.date === today && findItem(log.sourceType, log.sourceId))
@@ -2722,7 +2695,7 @@ function buildReviewedTodayTasks() {
 function buildCramTasks() {
   const { examDate, cramWindow } = state.settings;
   if (!examDate) return [];
-  const today = toDateInput(new Date());
+  const today = currentReviewDate();
   const daysLeft = diffDays(today, examDate);
   if (daysLeft < 0 || daysLeft > (Number(cramWindow) || 14)) return [];
 
@@ -2743,12 +2716,12 @@ function buildCramTasks() {
 }
 
 function wasReviewedToday(item) {
-  const today = toDateInput(new Date());
+  const today = currentReviewDate();
   return item.lastReviewedAt === today || state.logs.some((log) => log.sourceType === item.type && log.sourceId === item.id && log.date === today);
 }
 
 function wasTaskReviewedToday(task) {
-  const today = toDateInput(new Date());
+  const today = currentReviewDate();
   const item = findItem(task.sourceType, task.sourceId);
   return item?.lastReviewedAt === today || state.logs.some((log) => log.sourceType === task.sourceType && log.sourceId === task.sourceId && log.date === today);
 }
@@ -2757,62 +2730,39 @@ function shouldCram(item) {
   const score = currentScore(item);
   const importance = itemImportance(item);
   const lastReviewed = item.lastReviewedAt || item.date || item.createdAt.slice(0, 10);
-  const daysSinceReview = diffDays(lastReviewed, toDateInput(new Date()));
+  const daysSinceReview = diffDays(lastReviewed, currentReviewDate());
   if (score < 40) return true;
   if (score < 60 && ["veryHigh", "high", "medium"].includes(importance)) return true;
   if (score < 80 && ["veryHigh", "high"].includes(importance)) return true;
   return score >= 80 && daysSinceReview > 30;
 }
 
-function intervalStateAfterReview(item, recallPercent, historicalScore) {
-  const previousIndex = clamp(Number(item.currentIntervalIndex ?? 0), 0, BASE_INTERVALS.length - 1);
-  let nextIndex = previousIndex;
-
-  if (recallPercent >= 70) {
-    nextIndex = Math.min(previousIndex + 1, BASE_INTERVALS.length - 1);
-  } else if (recallPercent >= 50) {
-    nextIndex = historicalScore < 60 ? Math.max(0, previousIndex - 1) : previousIndex;
-  } else if (recallPercent >= 30) {
-    nextIndex = Math.max(0, previousIndex - 2);
-  } else {
-    nextIndex = 0;
-  }
-
-  return {
-    index: nextIndex,
-    interval: BASE_INTERVALS[nextIndex] || 1,
-  };
-}
-
 function currentScore(item) {
   const base = Number(item.memoryScore ?? 70);
-  const last = item.lastReviewedAt || item.date || item.createdAt?.slice(0, 10) || toDateInput(new Date());
-  const decay = Math.floor(Math.max(0, diffDays(last, toDateInput(new Date()))) / 7) * 2;
-  return clamp(base - decay, 0, 100);
+  const last = item.lastReviewedAt || item.date || item.createdAt?.slice(0, 10) || currentReviewDate();
+  return ReviewEngine.decayedMemoryScore(base, last, currentReviewDate());
 }
 
 function priorityScore(item, cram) {
-  const recencyPenalty = Math.max(0, 12 - diffDays(item.lastReviewedAt || item.date || item.createdAt.slice(0, 10), toDateInput(new Date())));
   const score = currentScore(item);
   const recall = latestRecallPercent(item);
-  const stableBonus = score >= 80 && recall >= 85 ? -18 : 0;
-  const weakGuard = score < 60 ? 12 : score < 80 ? 6 : 0;
-  const mistakeGuard = isMistakeItem(item) && recall < 80 ? 10 : 0;
-  const newStudyBonus = isNewStudyItem(item) ? NEW_STUDY_PRIORITY_BONUS : 0;
-  return (100 - score) + IMPORTANCE_WEIGHT[itemImportance(item)] + knowledgeWeaknessBonus(item) + weakGuard + mistakeGuard + newStudyBonus + stableBonus + (cram ? 20 : 0) - recencyPenalty;
-}
-
-function resultFromPercent(percent) {
-  if (percent >= 85) return "remembered";
-  if (percent >= 40) return "unclear";
-  return "forgotten";
+  const lastDate = item.lastReviewedAt || item.date || item.createdAt.slice(0, 10);
+  return ReviewEngine.calculatePriorityScore({
+    score,
+    recallPercent: recall,
+    importanceWeight: IMPORTANCE_WEIGHT[itemImportance(item)],
+    knowledgeWeaknessBonus: knowledgeWeaknessBonus(item),
+    daysSinceReview: diffDays(lastDate, currentReviewDate()),
+    isMistake: isMistakeItem(item),
+    isNewStudy: isNewStudyItem(item),
+    isCram: Boolean(cram),
+    newStudyBonus: NEW_STUDY_PRIORITY_BONUS,
+  });
 }
 
 function memoryScoreFromReview(sourceType, sourceId, reviewDraft) {
   const scores = recentReviewScores(sourceType, sourceId, reviewDraft);
-  if (!scores.length) return clamp(Number(reviewDraft?.recallPercent) || 0, 0, 100);
-  if (sourceType === "mistake") return weightedLatestMistakeScore(scores);
-  return averageScores(scores);
+  return ReviewEngine.aggregateReviewScore(sourceType, scores, reviewDraft?.recallPercent);
 }
 
 function recentReviewScores(sourceType, sourceId, reviewDraft) {
@@ -2825,13 +2775,6 @@ function recentReviewScores(sourceType, sourceId, reviewDraft) {
     .filter((score) => Number.isFinite(score))
     .map((score) => clamp(score, 0, 100))
     .slice(0, 10);
-}
-
-function weightedLatestMistakeScore(scores) {
-  if (scores.length <= 1) return Math.round(scores[0] || 0);
-  const latest = scores[0];
-  const restAverage = averageScores(scores.slice(1, 10));
-  return Math.round(clamp(latest * 0.5 + restAverage * 0.5, 0, 100));
 }
 
 function latestLogFor(sourceType, sourceId) {
@@ -2858,12 +2801,6 @@ function isNewStudyItem(item) {
   if (item?.type && item.type !== "study") return false;
   const study = item?.title != null ? item : state.study.find((row) => row.id === item?.id);
   return Boolean(study) && (study.studyKind || "new") === "new";
-}
-
-function averageScores(scores) {
-  if (!scores.length) return 0;
-  const total = scores.reduce((sum, score) => sum + score, 0);
-  return Math.round(total / scores.length);
 }
 
 function studyKindLabel(item) {
@@ -3317,13 +3254,13 @@ function setMistakeRecordRecallPercent(value) {
 async function postponeTask(taskId, sourceType, sourceId) {
   const item = findItem(sourceType, sourceId);
   if (!item) return;
-  const postponedUntil = addDays(toDateInput(new Date()), 1);
+  const postponedUntil = addDays(currentReviewDate(), 1);
   const displayTask = buildDisplayTasks().find((row) => row.id === taskId || (row.sourceType === sourceType && row.sourceId === sourceId));
   const existingTasks = state.tasks
     .filter((row) => row.status === "pending" && !row.isCram && row.sourceType === sourceType && row.sourceId === sourceId)
     .sort((a, b) => pendingTaskKeepSort(a, b));
   const target = existingTasks.find((row) => row.id === taskId) || existingTasks[0];
-  const previousEarliestDate = target?.earliestDate || displayTask?.earliestDate || displayTask?.scheduledDate || toDateInput(new Date());
+  const previousEarliestDate = target?.earliestDate || displayTask?.earliestDate || displayTask?.scheduledDate || currentReviewDate();
   const previousScheduledDate = target?.scheduledDate || displayTask?.scheduledDate || previousEarliestDate;
   const taskValue = {
     ...(target || {}),
@@ -3355,7 +3292,7 @@ async function postponeTask(taskId, sourceType, sourceId) {
 async function undoPostponeTask(taskId, sourceType, sourceId) {
   const item = findItem(sourceType, sourceId);
   if (!item) return;
-  const today = toDateInput(new Date());
+  const today = currentReviewDate();
   const existingTasks = state.tasks
     .filter((row) => row.status === "pending" && !row.isCram && row.sourceType === sourceType && row.sourceId === sourceId)
     .sort((a, b) => pendingTaskKeepSort(a, b));
@@ -3857,21 +3794,13 @@ function tagMemorySummary(tag, cache = new Map()) {
   const children = state.tags.filter((child) => child.parentId === tag.id && isKnowledgeTag(child));
   let summary = { score: null, mistakeCount: 0 };
   if (children.length) {
-    let weightedTotal = 0;
-    let totalWeight = 0;
-    let mistakeCount = directMistakeCount(tag.id);
-    for (const child of children) {
-      const childSummary = tagMemorySummary(child, cache);
-      mistakeCount += childSummary.mistakeCount || 0;
-      if (childSummary.score == null) continue;
-      const weight = TAG_SCORE_WEIGHT[child.importance] || TAG_SCORE_WEIGHT.medium;
-      weightedTotal += childSummary.score * weight;
-      totalWeight += weight;
-    }
-    summary = {
-      score: totalWeight ? Math.round(weightedTotal / totalWeight) : null,
-      mistakeCount,
-    };
+    summary = ReviewEngine.parentKnowledgeSummary(
+      children.map((child) => ({
+        ...tagMemorySummary(child, cache),
+        importance: child.importance,
+      })),
+      directMistakeCount(tag.id)
+    );
   } else {
     summary = leafTagMemorySummary(tag.id);
   }
@@ -3883,27 +3812,10 @@ function tagMemorySummary(tag, cache = new Map()) {
 function leafTagMemorySummary(tagId) {
   const studyItems = state.study.filter((item) => (item.tagIds || []).includes(tagId));
   const mistakeItems = state.mistakes.filter((item) => (item.tagIds || []).includes(tagId));
-  const studyScore = studyItems.length ? averageScores(studyItems.map(currentScore)) : null;
-  const mistakeBaseScore = mistakeItems.length ? averageScores(mistakeItems.map(currentScore)) : null;
-  const mistakePenalty = Math.min(mistakeItems.length * MISTAKE_COUNT_PENALTY, MAX_MISTAKE_PENALTY);
-  const mistakeScore = mistakeBaseScore == null ? null : clamp(mistakeBaseScore - mistakePenalty, 0, 100);
-
-  let score = null;
-  if (studyScore != null && mistakeScore != null) {
-    score = Math.round(studyScore * TAG_STUDY_RATIO + mistakeScore * TAG_MISTAKE_RATIO);
-  } else if (studyScore != null) {
-    score = studyScore;
-  } else if (mistakeScore != null) {
-    score = mistakeScore;
-  }
-
-  return {
-    score,
-    studyScore,
-    mistakeBaseScore,
-    mistakeScore,
-    mistakeCount: mistakeItems.length,
-  };
+  return ReviewEngine.leafKnowledgeSummary(
+    studyItems.map(currentScore),
+    mistakeItems.map(currentScore)
+  );
 }
 
 function directMistakeCount(tagId) {
@@ -3959,38 +3871,20 @@ function reviewLogSortDesc(a, b) {
   return (b.createdAt || "").localeCompare(a.createdAt || "");
 }
 
-function addDays(dateString, days) {
-  const date = new Date(`${dateString}T12:00:00`);
-  date.setDate(date.getDate() + Number(days));
-  return toDateInput(date);
-}
-
-function minDate(a, b) {
-  if (!a) return b;
-  if (!b) return a;
-  return a <= b ? a : b;
-}
-
-function maxDate(a, b) {
-  if (!a) return b;
-  if (!b) return a;
-  return a >= b ? a : b;
-}
-
-function diffDays(start, end) {
-  const a = new Date(`${start}T12:00:00`);
-  const b = new Date(`${end}T12:00:00`);
-  return Math.round((b - a) / 86400000);
-}
-
 function capAtExam(dateString) {
   if (!state.settings.examDate) return dateString;
   return dateString <= state.settings.examDate ? dateString : "";
 }
 
-function toDateInput(date) {
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-  return local.toISOString().slice(0, 10);
+function currentReviewDate() {
+  return reviewBusinessDate(new Date());
+}
+
+function reviewDateFromTimestamp(value) {
+  if (!value) return currentReviewDate();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(value))) return String(value);
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? currentReviewDate() : reviewBusinessDate(date);
 }
 
 function formatDate(dateString) {
@@ -4007,10 +3901,6 @@ function now() {
 function id(prefix) {
   const uuid = globalThis.crypto?.randomUUID?.();
   return `${prefix}_${uuid || `${Date.now()}_${Math.random().toString(16).slice(2)}`}`;
-}
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
 }
 
 function firstLine(value = "") {

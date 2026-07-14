@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node scripts/build-sites.cjs"
+    "build": "node scripts/build-sites.cjs",
+    "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {},
   "devDependencies": {}
