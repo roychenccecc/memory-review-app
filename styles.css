@@ -125,6 +125,43 @@ button {
   letter-spacing: 0;
 }
 
+.data-protection-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: -6px 0 18px;
+  padding: 14px 16px;
+  border: 1px solid #e4b52e;
+  border-left: 5px solid #d79b00;
+  border-radius: 8px;
+  background: #fff9df;
+}
+
+.data-protection-notice.danger {
+  border-color: #ef9a9a;
+  border-left-color: var(--red);
+  background: #fff1f1;
+}
+
+.data-protection-notice strong {
+  display: block;
+  margin-bottom: 3px;
+}
+
+.data-protection-notice p {
+  margin: 0;
+  color: #526268;
+  font-size: 13px;
+}
+
+.data-protection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
 .eyebrow {
   margin: 0;
   color: var(--muted);
@@ -989,6 +1026,48 @@ button {
   min-width: 0;
 }
 
+.data-protection-panel {
+  grid-column: 1 / -1;
+}
+
+.protection-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.protection-badge.safe {
+  background: #dcf5e8;
+  color: #11623f;
+}
+
+.protection-badge.warning {
+  background: #fff0bd;
+  color: #805400;
+}
+
+.protection-badge.danger {
+  background: #fee2e2;
+  color: #9d1717;
+}
+
+.protection-summary {
+  margin: 0 0 12px;
+  font-weight: 700;
+}
+
+.protection-details {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 14px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .panel-head {
   display: flex;
   align-items: center;
@@ -1675,6 +1754,7 @@ dialog::backdrop {
   }
 
   .topbar,
+  .data-protection-notice,
   .panel-head,
   .panel-tools,
   .recall-head,

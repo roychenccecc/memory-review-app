@@ -1,6 +1,19 @@
 const DB_NAME = "adaptive-memory-review";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORES = ["settings", "tags", "study", "mistakes", "logs", "tasks"];
+const INTERNAL_STORES = ["snapshots", "meta"];
+const ALL_STORES = [...STORES, ...INTERNAL_STORES];
+const DATA_GUARD_META_ID = "data-guard";
+const DATA_GUARD_LOCAL_KEY = "memory-review-data-guard-v1";
+const MAX_LOCAL_SNAPSHOTS = 6;
+const APP_BUILD_ID = new URL(document.currentScript?.src || window.location.href).searchParams.get("v") || "unversioned";
+const {
+  backupFingerprint,
+  dataCounts,
+  hasMeaningfulData,
+  normalizeBackupPayload,
+  shouldFlagUnexpectedEmpty,
+} = globalThis.DataProtection;
 const {
   BASE_INTERVALS,
   TAG_SCORE_WEIGHT,
@@ -40,6 +53,18 @@ let weakTagsCollapsed = localStorage.getItem("weakTagsCollapsed") === "1";
 let activeBridgeDraftId = "";
 let activeCodexReviewDraftId = "";
 let bridgeCompletionProcessing = false;
+let protectionSnapshotTimer = 0;
+let protectionSnapshotInProgress = false;
+let dataProtectionStatus = {
+  blocked: false,
+  externalBackupRequired: false,
+  lastExternalBackupAt: "",
+  lastSnapshotAt: "",
+  lastSnapshotReason: "",
+  snapshotCount: 0,
+  snapshotError: "",
+  storagePersisted: false,
+};
 let state = {
   settings: {
     id: "main",
@@ -61,18 +86,27 @@ let collapsedTagIds = new Set();
 document.addEventListener("DOMContentLoaded", async () => {
   db = await openDb();
   await loadState();
-  const repairedLegacyTags = await repairLegacySplitEnumerationTags();
-  const repairedReviewChains = await repairReviewScoreChainsIfNeeded();
-  await refreshSchedule();
+  const protectionResult = await initializeDataProtection();
+  let repairedLegacyTags = 0;
+  let repairedReviewChains = 0;
+  if (!dataProtectionStatus.blocked) {
+    repairedLegacyTags = await repairLegacySplitEnumerationTags();
+    repairedReviewChains = await repairReviewScoreChainsIfNeeded();
+    await refreshSchedule();
+  }
   bindEvents();
   setDefaultDates();
   render();
-  bindBridgeEvents();
-  ensureCodexReviewDraftDialog();
-  publishBridgeReviewSnapshot();
-  await consumeBridgeReviewCompletions();
-  await handleBridgeLaunchDraft();
-  await handleCodexReviewDraftFromHash();
+  if (!dataProtectionStatus.blocked) {
+    bindBridgeEvents();
+    ensureCodexReviewDraftDialog();
+    publishBridgeReviewSnapshot();
+    await consumeBridgeReviewCompletions();
+    await handleBridgeLaunchDraft();
+    await handleCodexReviewDraftFromHash();
+    scheduleDataProtectionSnapshot("启动后恢复点");
+  }
+  if (protectionResult.restored) toast("检测到异常空库，已自动从最近恢复点找回数据。");
   if (repairedLegacyTags) toast(`已修复 ${repairedLegacyTags} 条旧的顿号误拆标签。`);
   if (repairedReviewChains) toast(`已重新计算 ${repairedReviewChains} 条内容的复习分数链。`);
 });
@@ -82,7 +116,7 @@ function openDb() {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
       const database = request.result;
-      for (const store of STORES) {
+      for (const store of ALL_STORES) {
         if (!database.objectStoreNames.contains(store)) {
           database.createObjectStore(store, { keyPath: "id" });
         }
@@ -108,7 +142,10 @@ function all(store) {
 function put(store, value) {
   return new Promise((resolve, reject) => {
     const request = tx(store, "readwrite").put(value);
-    request.onsuccess = () => resolve(value);
+    request.onsuccess = () => {
+      if (STORES.includes(store)) scheduleDataProtectionSnapshot(`更新${store}`);
+      resolve(value);
+    };
     request.onerror = () => reject(request.error);
   });
 }
@@ -116,15 +153,10 @@ function put(store, value) {
 function remove(store, id) {
   return new Promise((resolve, reject) => {
     const request = tx(store, "readwrite").delete(id);
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
-  });
-}
-
-function clearStore(store) {
-  return new Promise((resolve, reject) => {
-    const request = tx(store, "readwrite").clear();
-    request.onsuccess = () => resolve();
+    request.onsuccess = () => {
+      if (STORES.includes(store)) scheduleDataProtectionSnapshot(`删除${store}`);
+      resolve();
+    };
     request.onerror = () => reject(request.error);
   });
 }
@@ -150,6 +182,313 @@ async function loadState() {
   state.mistakes = mistakes.sort(byDateDesc);
   state.logs = logs.sort(byDateDesc);
   state.tasks = tasks.sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
+}
+
+function getStoreValue(store, key) {
+  return new Promise((resolve, reject) => {
+    const request = tx(store).get(key);
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function currentStateBackupPayload() {
+  return {
+    settings: state.settings,
+    tags: state.tags,
+    study: state.study,
+    mistakes: state.mistakes,
+    logs: state.logs,
+    tasks: state.tasks,
+  };
+}
+
+async function readBackupPayloadFromDb() {
+  const [settings, tags, study, mistakes, logs, tasks] = await Promise.all([
+    all("settings"),
+    all("tags"),
+    all("study"),
+    all("mistakes"),
+    all("logs"),
+    all("tasks"),
+  ]);
+  return normalizeBackupPayload({
+    settings: settings[0] || state.settings,
+    tags,
+    study,
+    mistakes,
+    logs,
+    tasks,
+  });
+}
+
+function readLocalDataGuard() {
+  try {
+    const guard = JSON.parse(localStorage.getItem(DATA_GUARD_LOCAL_KEY));
+    return guard && typeof guard === "object" ? guard : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLocalDataGuard(guard) {
+  localStorage.setItem(DATA_GUARD_LOCAL_KEY, JSON.stringify({
+    hadData: Boolean(guard.hadData),
+    lastCounts: guard.lastCounts || {},
+    lastSnapshotAt: guard.lastSnapshotAt || "",
+    lastSnapshotReason: guard.lastSnapshotReason || "",
+    lastBuildId: guard.lastBuildId || APP_BUILD_ID,
+    externalBackupRequired: Boolean(guard.externalBackupRequired),
+    lastExternalBackupAt: guard.lastExternalBackupAt || "",
+    snapshotError: guard.snapshotError || "",
+    updatedAt: guard.updatedAt || now(),
+  }));
+}
+
+function applyDataGuardStatus(guard, snapshots = []) {
+  dataProtectionStatus.externalBackupRequired = Boolean(guard?.externalBackupRequired);
+  dataProtectionStatus.lastExternalBackupAt = guard?.lastExternalBackupAt || "";
+  dataProtectionStatus.lastSnapshotAt = guard?.lastSnapshotAt || snapshots[0]?.createdAt || "";
+  dataProtectionStatus.lastSnapshotReason = guard?.lastSnapshotReason || snapshots[0]?.reason || "";
+  dataProtectionStatus.snapshotCount = snapshots.length;
+  dataProtectionStatus.snapshotError = guard?.snapshotError || "";
+}
+
+async function requestPersistentStorageProtection() {
+  try {
+    if (!navigator.storage?.persisted) return false;
+    let persisted = await navigator.storage.persisted();
+    if (!persisted && navigator.storage.persist) persisted = await navigator.storage.persist();
+    return Boolean(persisted);
+  } catch {
+    return false;
+  }
+}
+
+async function initializeDataProtection() {
+  const snapshots = (await all("snapshots")).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+  const storedGuard = await getStoreValue("meta", DATA_GUARD_META_ID);
+  const localGuard = readLocalDataGuard();
+  const guardHint = storedGuard || localGuard;
+  const payload = await readBackupPayloadFromDb();
+  const counts = dataCounts(payload);
+  dataProtectionStatus.storagePersisted = await requestPersistentStorageProtection();
+  applyDataGuardStatus(storedGuard, snapshots);
+
+  if (!hasMeaningfulData(counts)) {
+    if (snapshots.length && guardHint?.hadData) {
+      await replaceAllDataAtomically(normalizeBackupPayload(snapshots[0].payload));
+      await loadState();
+      dataProtectionStatus.blocked = false;
+      await createLocalSnapshot("异常空库自动恢复", { force: true });
+      return { restored: true };
+    }
+    if (shouldFlagUnexpectedEmpty(counts, guardHint, snapshots.length)) {
+      dataProtectionStatus.blocked = true;
+      dataProtectionStatus.externalBackupRequired = true;
+      return { restored: false };
+    }
+    const emptyGuard = {
+      id: DATA_GUARD_META_ID,
+      hadData: false,
+      lastCounts: counts,
+      lastBuildId: APP_BUILD_ID,
+      externalBackupRequired: false,
+      updatedAt: now(),
+    };
+    await put("meta", emptyGuard);
+    writeLocalDataGuard(emptyGuard);
+    return { restored: false };
+  }
+
+  const firstProtectionRun = !storedGuard?.lastBuildId;
+  const buildChanged = Boolean(storedGuard?.lastBuildId && storedGuard.lastBuildId !== APP_BUILD_ID);
+  const snapshotReason = buildChanged
+    ? `网站版本更新 ${storedGuard.lastBuildId} -> ${APP_BUILD_ID}`
+    : firstProtectionRun ? "首次启用数据保护" : "启动保护";
+  try {
+    await createLocalSnapshot(snapshotReason, {
+      force: firstProtectionRun || buildChanged || !snapshots.length,
+      requireExternalBackup: firstProtectionRun || buildChanged,
+    });
+  } catch (error) {
+    console.error("初始化本地恢复点失败", error);
+    const fallbackGuard = {
+      ...(storedGuard || {}),
+      id: DATA_GUARD_META_ID,
+      hadData: true,
+      lastCounts: counts,
+      lastBuildId: APP_BUILD_ID,
+      externalBackupRequired: true,
+      snapshotError: error?.message || "本地恢复点写入失败",
+      updatedAt: now(),
+    };
+    try {
+      await put("meta", fallbackGuard);
+    } catch (metaError) {
+      console.error("保存数据保护状态失败", metaError);
+    }
+    writeLocalDataGuard(fallbackGuard);
+    applyDataGuardStatus(fallbackGuard, snapshots);
+  }
+  return { restored: false };
+}
+
+function scheduleDataProtectionSnapshot(reason = "自动保护") {
+  if (!db || dataProtectionStatus.blocked) return;
+  window.clearTimeout(protectionSnapshotTimer);
+  protectionSnapshotTimer = window.setTimeout(() => {
+    createLocalSnapshot(reason).catch((error) => {
+      console.error("创建本地恢复点失败", error);
+      toast("数据已保存，但自动恢复点创建失败，请下载 JSON 备份。");
+    });
+  }, 500);
+}
+
+async function createLocalSnapshot(reason = "手动保护", options = {}) {
+  if (protectionSnapshotInProgress || dataProtectionStatus.blocked) return null;
+  protectionSnapshotInProgress = true;
+  try {
+    const payload = await readBackupPayloadFromDb();
+    const counts = dataCounts(payload);
+    if (!hasMeaningfulData(counts)) return null;
+    const signature = backupFingerprint(payload);
+    const snapshots = (await all("snapshots")).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+    let snapshot = snapshots[0] || null;
+    if (options.force || snapshot?.signature !== signature) {
+      snapshot = {
+        id: id("snapshot"),
+        buildId: APP_BUILD_ID,
+        reason,
+        counts,
+        signature,
+        createdAt: now(),
+        payload,
+      };
+      await put("snapshots", snapshot);
+      snapshots.unshift(snapshot);
+      for (const expired of snapshots.slice(MAX_LOCAL_SNAPSHOTS)) {
+        await remove("snapshots", expired.id);
+      }
+    }
+
+    const existingGuard = await getStoreValue("meta", DATA_GUARD_META_ID);
+    const guard = {
+      ...(existingGuard || {}),
+      id: DATA_GUARD_META_ID,
+      hadData: true,
+      lastCounts: counts,
+      lastSnapshotId: snapshot.id,
+      lastSnapshotAt: snapshot.createdAt,
+      lastSnapshotReason: snapshot.reason,
+      lastBuildId: APP_BUILD_ID,
+      externalBackupRequired: Boolean(options.requireExternalBackup || existingGuard?.externalBackupRequired),
+      snapshotError: "",
+      updatedAt: now(),
+    };
+    await put("meta", guard);
+    writeLocalDataGuard(guard);
+    const remainingSnapshots = (await all("snapshots")).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+    applyDataGuardStatus(guard, remainingSnapshots);
+    renderDataProtection();
+    return snapshot;
+  } finally {
+    protectionSnapshotInProgress = false;
+  }
+}
+
+function replaceAllDataAtomically(payload) {
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORES, "readwrite");
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error || new Error("数据替换失败。"));
+    transaction.onabort = () => reject(transaction.error || new Error("数据替换已回滚。"));
+    const rowsByStore = {
+      settings: [payload.settings],
+      tags: payload.tags,
+      study: payload.study,
+      mistakes: payload.mistakes,
+      logs: payload.logs,
+      tasks: payload.tasks,
+    };
+    for (const store of STORES) {
+      const objectStore = transaction.objectStore(store);
+      objectStore.clear();
+      for (const row of rowsByStore[store]) objectStore.put(row);
+    }
+  });
+}
+
+async function markExternalBackupCompleted() {
+  const existingGuard = await getStoreValue("meta", DATA_GUARD_META_ID);
+  if (!existingGuard) return;
+  const guard = {
+    ...existingGuard,
+    externalBackupRequired: false,
+    lastExternalBackupAt: now(),
+    snapshotError: existingGuard.snapshotError || "",
+    updatedAt: now(),
+  };
+  await put("meta", guard);
+  writeLocalDataGuard(guard);
+  const snapshots = (await all("snapshots")).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+  applyDataGuardStatus(guard, snapshots);
+  renderDataProtection();
+}
+
+async function createManualProtectionSnapshot() {
+  const snapshot = await createLocalSnapshot("手动创建恢复点", { force: true });
+  toast(snapshot ? "已创建本地恢复点。" : "当前没有可备份的数据。");
+}
+
+async function restoreLatestLocalSnapshot() {
+  const snapshots = (await all("snapshots")).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+  const currentPayload = await readBackupPayloadFromDb();
+  const currentSignature = hasMeaningfulData(dataCounts(currentPayload)) ? backupFingerprint(currentPayload) : "";
+  const snapshot = snapshots.find((row) => row.signature !== currentSignature) || snapshots[0];
+  if (!snapshot) {
+    toast("还没有本地恢复点。");
+    return;
+  }
+  if (!confirm(`确定恢复 ${formatProtectionTime(snapshot.createdAt)} 的数据吗？当前数据会先自动保留一份。`)) return;
+  await createLocalSnapshot("恢复操作前保护", { force: true });
+  const payload = normalizeBackupPayload(snapshot.payload);
+  await replaceAllDataAtomically(payload);
+  dataProtectionStatus.blocked = false;
+  await loadState();
+  await refreshSchedule();
+  await createLocalSnapshot("恢复操作完成", { force: true });
+  render();
+  toast("已从最近本地恢复点找回数据。");
+}
+
+async function confirmUseEmptyDatabase() {
+  if (!confirm("确定当前就是一个新的空数据库吗？只有在新设备或主动清空后才应该继续。")) return;
+  const guard = {
+    id: DATA_GUARD_META_ID,
+    hadData: false,
+    lastCounts: dataCounts(currentStateBackupPayload()),
+    lastBuildId: APP_BUILD_ID,
+    externalBackupRequired: false,
+    updatedAt: now(),
+  };
+  await put("meta", guard);
+  writeLocalDataGuard(guard);
+  dataProtectionStatus.blocked = false;
+  applyDataGuardStatus(guard, []);
+  render();
+  toast("已确认使用新的空数据库。");
+}
+
+function openBackupImportSettings() {
+  switchView("settings");
+  document.getElementById("dataProtectionPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function formatProtectionTime(value) {
+  if (!value) return "尚未创建";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("zh-CN", { hour12: false });
 }
 
 function readBridgeState() {
@@ -764,6 +1103,14 @@ function bindEvents() {
   document.getElementById("exportIcsBtn").addEventListener("click", exportIcs);
   document.getElementById("syncAppleCalendarBtn").addEventListener("click", syncAppleCalendar);
   document.getElementById("importJsonInput").addEventListener("change", importJson);
+  document.getElementById("createLocalSnapshotBtn").addEventListener("click", createManualProtectionSnapshot);
+  document.getElementById("restoreLocalSnapshotBtn").addEventListener("click", restoreLatestLocalSnapshot);
+  document.getElementById("downloadProtectionBackupBtn").addEventListener("click", exportJson);
+  document.getElementById("protectionNoticePrimaryBtn").addEventListener("click", () => {
+    if (dataProtectionStatus.blocked) openBackupImportSettings();
+    else exportJson();
+  });
+  document.getElementById("confirmEmptyDatabaseBtn").addEventListener("click", confirmUseEmptyDatabase);
   document.getElementById("seedBtn").addEventListener("click", addSeedData);
   document.getElementById("addStudyManualTagBtn").addEventListener("click", () => addManualSimpleTags("study"));
   document.getElementById("studyManualTagInput").addEventListener("keydown", handleManualTagInputKeydown);
@@ -853,6 +1200,65 @@ function render() {
   renderTags();
   renderHistory();
   setDefaultDates();
+  renderDataProtection();
+}
+
+function renderDataProtection() {
+  const panel = document.getElementById("dataProtectionPanel");
+  if (!panel) return;
+  const counts = dataCounts(currentStateBackupPayload());
+  const badge = document.getElementById("dataProtectionBadge");
+  const summary = document.getElementById("dataProtectionSummary");
+  const snapshotText = document.getElementById("dataProtectionSnapshotText");
+  const storageText = document.getElementById("dataProtectionStorageText");
+  const restoreButton = document.getElementById("restoreLocalSnapshotBtn");
+  const notice = document.getElementById("dataProtectionNotice");
+  const noticeTitle = document.getElementById("dataProtectionNoticeTitle");
+  const noticeText = document.getElementById("dataProtectionNoticeText");
+  const noticePrimary = document.getElementById("protectionNoticePrimaryBtn");
+  const confirmEmpty = document.getElementById("confirmEmptyDatabaseBtn");
+
+  badge.className = "protection-badge";
+  if (dataProtectionStatus.blocked) {
+    badge.textContent = "已停止写入";
+    badge.classList.add("danger");
+  } else if (dataProtectionStatus.externalBackupRequired) {
+    badge.textContent = "待下载备份";
+    badge.classList.add("warning");
+  } else {
+    badge.textContent = "已保护";
+    badge.classList.add("safe");
+  }
+
+  summary.textContent = `学习 ${counts.study} 条 · 错题 ${counts.mistakes} 条 · 知识点 ${counts.tags} 个 · 复习记录 ${counts.logs} 条`;
+  snapshotText.textContent = `本地恢复点 ${dataProtectionStatus.snapshotCount} 份，最近：${formatProtectionTime(dataProtectionStatus.lastSnapshotAt)}${dataProtectionStatus.lastSnapshotReason ? `（${dataProtectionStatus.lastSnapshotReason}）` : ""}`;
+  storageText.textContent = dataProtectionStatus.storagePersisted
+    ? "浏览器已授予持久存储，降低自动清理风险。"
+    : "浏览器未确认持久存储，请保留定期下载的 JSON 备份。";
+  if (dataProtectionStatus.snapshotError) {
+    storageText.textContent += ` 本地恢复点最近写入失败：${dataProtectionStatus.snapshotError}`;
+  }
+  restoreButton.disabled = dataProtectionStatus.snapshotCount === 0;
+
+  const showNotice = dataProtectionStatus.blocked || dataProtectionStatus.externalBackupRequired;
+  notice.classList.toggle("hidden", !showNotice);
+  notice.classList.toggle("danger", dataProtectionStatus.blocked);
+  if (dataProtectionStatus.blocked) {
+    noticeTitle.textContent = "检测到本地数据异常为空";
+    noticeText.textContent = "应用已停止新增和修改，避免覆盖恢复线索。请先导入最近的 JSON 备份。";
+    noticePrimary.textContent = "前往导入备份";
+    confirmEmpty.classList.remove("hidden");
+  } else if (dataProtectionStatus.externalBackupRequired) {
+    noticeTitle.textContent = "网站版本已更新，本地恢复点已创建";
+    noticeText.textContent = "再下载一份 JSON 到电脑，即使浏览器网站数据被清理也能恢复。";
+    noticePrimary.textContent = "下载升级备份";
+    confirmEmpty.classList.add("hidden");
+  }
+
+  document.querySelectorAll("[data-open-modal]").forEach((button) => {
+    button.disabled = dataProtectionStatus.blocked;
+  });
+  document.getElementById("seedBtn").disabled = dataProtectionStatus.blocked;
 }
 
 function renderDashboard() {
@@ -3950,7 +4356,17 @@ async function addSeedData() {
 }
 
 function exportJson() {
-  download(`memory-review-backup-${toDateInput(new Date())}.json`, JSON.stringify(state, null, 2), "application/json");
+  const payload = {
+    ...currentStateBackupPayload(),
+    backupMeta: {
+      formatVersion: 2,
+      appBuildId: APP_BUILD_ID,
+      exportedAt: now(),
+      counts: dataCounts(currentStateBackupPayload()),
+    },
+  };
+  download(`memory-review-backup-${toDateInput(new Date())}.json`, JSON.stringify(payload, null, 2), "application/json");
+  markExternalBackupCompleted().catch((error) => console.error("更新备份状态失败", error));
 }
 
 function exportCsv() {
@@ -4022,23 +4438,34 @@ async function syncAppleCalendar() {
 async function importJson(event) {
   const file = event.target.files[0];
   if (!file) return;
-  const data = JSON.parse(await file.text());
-  for (const store of STORES) await clearStore(store);
-  const imported = {
-    settings: data.settings ? [data.settings] : [],
-    tags: data.tags || [],
-    study: data.study || [],
-    mistakes: data.mistakes || [],
-    logs: data.logs || [],
-    tasks: data.tasks || [],
-  };
-  for (const [store, rows] of Object.entries(imported)) {
-    for (const row of rows) await put(store, row);
+  let replaced = false;
+  try {
+    const parsed = JSON.parse(await file.text());
+    const imported = normalizeBackupPayload(parsed);
+    const importedCounts = dataCounts(imported);
+    if (!hasMeaningfulData(importedCounts)) {
+      throw new Error("备份中没有学习、错题、知识点或复习记录，已拒绝覆盖当前数据。");
+    }
+    if (hasMeaningfulData(dataCounts(currentStateBackupPayload())) && !dataProtectionStatus.blocked) {
+      await createLocalSnapshot("导入 JSON 前保护", { force: true });
+    }
+    await replaceAllDataAtomically(imported);
+    replaced = true;
+    dataProtectionStatus.blocked = false;
+    await loadState();
+    await refreshSchedule();
+    await createLocalSnapshot("导入 JSON 完成", { force: true });
+    await markExternalBackupCompleted();
+    toast(`JSON 备份已安全导入：学习 ${importedCounts.study} 条，错题 ${importedCounts.mistakes} 条。`);
+    render();
+  } catch (error) {
+    console.error("JSON 备份导入失败", error);
+    toast(replaced
+      ? `备份数据已写入，但后续刷新失败：${error.message}`
+      : `导入已取消，原数据未改变：${error.message}`);
+  } finally {
+    event.target.value = "";
   }
-  await refreshSchedule();
-  event.target.value = "";
-  toast("JSON 备份已导入。");
-  render();
 }
 
 function getAllItems() {

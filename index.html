@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>自适应复习与错题管理器</title>
-    <link rel="stylesheet" href="styles.css?v=20260715-engine" />
+    <link rel="stylesheet" href="styles.css?v=20260715-protection1" />
   </head>
   <body>
     <div class="app-shell">
@@ -36,6 +36,17 @@
             <button class="secondary" id="seedBtn" type="button">加入示例</button>
             <button class="primary" data-open-modal="studyModal" type="button">新增学习</button>
             <button class="primary dark" data-open-modal="mistakeModal" type="button">新增错题</button>
+          </div>
+        </section>
+
+        <section class="data-protection-notice hidden" id="dataProtectionNotice" aria-live="polite">
+          <div>
+            <strong id="dataProtectionNoticeTitle"></strong>
+            <p id="dataProtectionNoticeText"></p>
+          </div>
+          <div class="data-protection-actions">
+            <button class="primary" id="protectionNoticePrimaryBtn" type="button"></button>
+            <button class="secondary hidden" id="confirmEmptyDatabaseBtn" type="button">确认使用空库</button>
           </div>
         </section>
 
@@ -130,6 +141,22 @@
 
         <section class="view" id="settings">
           <div class="content-grid">
+            <section class="panel wide data-protection-panel" id="dataProtectionPanel">
+              <div class="panel-head">
+                <h3>本地数据保护</h3>
+                <span class="protection-badge" id="dataProtectionBadge">正在检查</span>
+              </div>
+              <p class="protection-summary" id="dataProtectionSummary"></p>
+              <div class="protection-details">
+                <span id="dataProtectionSnapshotText"></span>
+                <span id="dataProtectionStorageText"></span>
+              </div>
+              <div class="data-protection-actions">
+                <button class="secondary" id="createLocalSnapshotBtn" type="button">创建本地恢复点</button>
+                <button class="secondary" id="restoreLocalSnapshotBtn" type="button">恢复最近恢复点</button>
+                <button class="primary" id="downloadProtectionBackupBtn" type="button">下载完整备份</button>
+              </div>
+            </section>
             <section class="panel">
               <div class="panel-head">
                 <h3>复习设置</h3>
@@ -627,8 +654,9 @@
 
     <datalist id="tagOptions"></datalist>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="review-engine.js?v=20260715-engine"></script>
-    <script src="review-matcher.js?v=20260715-engine"></script>
-    <script src="app.js?v=20260715-engine"></script>
+    <script src="review-engine.js?v=20260715-protection1"></script>
+    <script src="review-matcher.js?v=20260715-protection1"></script>
+    <script src="data-protection.js?v=20260715-protection1"></script>
+    <script src="app.js?v=20260715-protection1"></script>
   </body>
 </html>
