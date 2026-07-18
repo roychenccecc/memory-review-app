@@ -45,5 +45,26 @@ test("snapshot failure cannot prevent an existing database from starting", () =>
   const initializationSource = appSource.slice(start, end);
   assert.match(initializationSource, /try\s*{[\s\S]*createLocalSnapshot/);
   assert.match(initializationSource, /catch \(error\)/);
-  assert.match(initializationSource, /externalBackupRequired: true/);
+  assert.match(initializationSource, /recordSnapshotFailure/);
+});
+
+test("normal application updates silently refresh recovery points", () => {
+  const start = appSource.indexOf("async function initializeDataProtection");
+  const end = appSource.indexOf("async function recordSnapshotFailure", start);
+  const initializationSource = appSource.slice(start, end);
+  assert.match(initializationSource, /force: firstProtectionRun \|\| buildChanged \|\| !snapshots\.length/);
+  assert.doesNotMatch(initializationSource, /requireExternalBackup/);
+
+  const snapshotStart = appSource.indexOf("async function createLocalSnapshot");
+  const snapshotEnd = appSource.indexOf("function replaceAllDataAtomically", snapshotStart);
+  const snapshotSource = appSource.slice(snapshotStart, snapshotEnd);
+  assert.match(snapshotSource, /externalBackupRequired: false/);
+  assert.match(snapshotSource, /snapshotError: ""/);
+});
+
+test("non-blocking data protection warnings can be dismissed", () => {
+  assert.match(indexSource, /id="dismissDataProtectionNoticeBtn"/);
+  assert.match(appSource, /function dismissDataProtectionNotice/);
+  assert.match(appSource, /if \(dataProtectionStatus\.blocked\) return;/);
+  assert.match(appSource, /dismissDataProtectionNoticeBtn"\)\.addEventListener\("click", dismissDataProtectionNotice\)/);
 });
