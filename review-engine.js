@@ -87,6 +87,10 @@
     return toDateInput(date);
   }
 
+  function postponedTaskDate(today, scheduledDate) {
+    return addDays(maxDate(today, scheduledDate || today), 1);
+  }
+
   function minDate(a, b) {
     if (!a) return b;
     if (!b) return a;
@@ -236,6 +240,7 @@
     maxDate,
     minDate,
     parentKnowledgeSummary,
+    postponedTaskDate,
     resultFromPercent,
     reviewBusinessDate,
     toDateInput,

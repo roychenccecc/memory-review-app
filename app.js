@@ -23,6 +23,7 @@ const {
   intervalStateAfterReview,
   maxDate,
   minDate,
+  postponedTaskDate,
   resultFromPercent,
   reviewBusinessDate,
   toDateInput,
@@ -4107,7 +4108,6 @@ function setMistakeRecordRecallPercent(value) {
 async function postponeTask(taskId, sourceType, sourceId) {
   const item = findItem(sourceType, sourceId);
   if (!item) return;
-  const postponedUntil = addDays(currentReviewDate(), 1);
   const displayTask = buildDisplayTasks().find((row) => row.id === taskId || (row.sourceType === sourceType && row.sourceId === sourceId));
   const existingTasks = state.tasks
     .filter((row) => row.status === "pending" && !row.isCram && row.sourceType === sourceType && row.sourceId === sourceId)
@@ -4115,6 +4115,7 @@ async function postponeTask(taskId, sourceType, sourceId) {
   const target = existingTasks.find((row) => row.id === taskId) || existingTasks[0];
   const previousEarliestDate = target?.earliestDate || displayTask?.earliestDate || displayTask?.scheduledDate || currentReviewDate();
   const previousScheduledDate = target?.scheduledDate || displayTask?.scheduledDate || previousEarliestDate;
+  const postponedUntil = postponedTaskDate(currentReviewDate(), previousScheduledDate);
   const taskValue = {
     ...(target || {}),
     id: target?.id || id("task"),

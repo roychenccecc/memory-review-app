@@ -66,3 +66,9 @@ test("review day changes at 08:00 local time", () => {
   assert.equal(engine.reviewBusinessDate(new Date(2026, 6, 15, 7, 59)), "2026-07-14");
   assert.equal(engine.reviewBusinessDate(new Date(2026, 6, 15, 8, 0)), "2026-07-15");
 });
+
+test("postpone moves today, overdue, and future tasks forward by one real day", () => {
+  assert.equal(engine.postponedTaskDate("2026-07-18", "2026-07-18"), "2026-07-19");
+  assert.equal(engine.postponedTaskDate("2026-07-18", "2026-07-15"), "2026-07-19");
+  assert.equal(engine.postponedTaskDate("2026-07-18", "2026-07-22"), "2026-07-23");
+});
