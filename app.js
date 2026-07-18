@@ -310,29 +310,35 @@ async function initializeDataProtection() {
   try {
     await createLocalSnapshot(snapshotReason, {
       force: firstProtectionRun || buildChanged || !snapshots.length,
-      requireExternalBackup: firstProtectionRun || buildChanged,
     });
   } catch (error) {
     console.error("初始化本地恢复点失败", error);
-    const fallbackGuard = {
-      ...(storedGuard || {}),
-      id: DATA_GUARD_META_ID,
-      hadData: true,
-      lastCounts: counts,
-      lastBuildId: APP_BUILD_ID,
-      externalBackupRequired: true,
-      snapshotError: error?.message || "本地恢复点写入失败",
-      updatedAt: now(),
-    };
-    try {
-      await put("meta", fallbackGuard);
-    } catch (metaError) {
-      console.error("保存数据保护状态失败", metaError);
-    }
-    writeLocalDataGuard(fallbackGuard);
-    applyDataGuardStatus(fallbackGuard, snapshots);
+    await recordSnapshotFailure(error, counts, snapshots);
   }
   return { restored: false };
+}
+
+async function recordSnapshotFailure(error, counts = null, snapshots = null) {
+  const existingGuard = await getStoreValue("meta", DATA_GUARD_META_ID);
+  const currentSnapshots = snapshots || (await all("snapshots")).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+  const fallbackGuard = {
+    ...(existingGuard || {}),
+    id: DATA_GUARD_META_ID,
+    hadData: true,
+    lastCounts: counts || dataCounts(await readBackupPayloadFromDb()),
+    lastBuildId: APP_BUILD_ID,
+    externalBackupRequired: true,
+    snapshotError: error?.message || "本地恢复点写入失败",
+    updatedAt: now(),
+  };
+  try {
+    await put("meta", fallbackGuard);
+  } catch (metaError) {
+    console.error("保存数据保护状态失败", metaError);
+  }
+  writeLocalDataGuard(fallbackGuard);
+  applyDataGuardStatus(fallbackGuard, currentSnapshots);
+  renderDataProtection();
 }
 
 function scheduleDataProtectionSnapshot(reason = "自动保护") {
@@ -341,7 +347,8 @@ function scheduleDataProtectionSnapshot(reason = "自动保护") {
   protectionSnapshotTimer = window.setTimeout(() => {
     createLocalSnapshot(reason).catch((error) => {
       console.error("创建本地恢复点失败", error);
-      toast("数据已保存，但自动恢复点创建失败，请下载 JSON 备份。");
+      recordSnapshotFailure(error).catch((guardError) => console.error("记录恢复点失败状态失败", guardError));
+      toast("数据已保存，但本地恢复点创建失败，可在设置中检查。");
     });
   }, 500);
 }
@@ -383,7 +390,7 @@ async function createLocalSnapshot(reason = "手动保护", options = {}) {
       lastSnapshotAt: snapshot.createdAt,
       lastSnapshotReason: snapshot.reason,
       lastBuildId: APP_BUILD_ID,
-      externalBackupRequired: Boolean(options.requireExternalBackup || existingGuard?.externalBackupRequired),
+      externalBackupRequired: false,
       snapshotError: "",
       updatedAt: now(),
     };
@@ -428,6 +435,22 @@ async function markExternalBackupCompleted() {
     externalBackupRequired: false,
     lastExternalBackupAt: now(),
     snapshotError: existingGuard.snapshotError || "",
+    updatedAt: now(),
+  };
+  await put("meta", guard);
+  writeLocalDataGuard(guard);
+  const snapshots = (await all("snapshots")).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+  applyDataGuardStatus(guard, snapshots);
+  renderDataProtection();
+}
+
+async function dismissDataProtectionNotice() {
+  if (dataProtectionStatus.blocked) return;
+  const existingGuard = await getStoreValue("meta", DATA_GUARD_META_ID);
+  if (!existingGuard) return;
+  const guard = {
+    ...existingGuard,
+    externalBackupRequired: false,
     updatedAt: now(),
   };
   await put("meta", guard);
@@ -1108,9 +1131,9 @@ function bindEvents() {
   document.getElementById("restoreLocalSnapshotBtn").addEventListener("click", restoreLatestLocalSnapshot);
   document.getElementById("downloadProtectionBackupBtn").addEventListener("click", exportJson);
   document.getElementById("protectionNoticePrimaryBtn").addEventListener("click", () => {
-    if (dataProtectionStatus.blocked) openBackupImportSettings();
-    else exportJson();
+    openBackupImportSettings();
   });
+  document.getElementById("dismissDataProtectionNoticeBtn").addEventListener("click", dismissDataProtectionNotice);
   document.getElementById("confirmEmptyDatabaseBtn").addEventListener("click", confirmUseEmptyDatabase);
   document.getElementById("seedBtn").addEventListener("click", addSeedData);
   document.getElementById("addStudyManualTagBtn").addEventListener("click", () => addManualSimpleTags("study"));
@@ -1218,13 +1241,14 @@ function renderDataProtection() {
   const noticeText = document.getElementById("dataProtectionNoticeText");
   const noticePrimary = document.getElementById("protectionNoticePrimaryBtn");
   const confirmEmpty = document.getElementById("confirmEmptyDatabaseBtn");
+  const dismissNotice = document.getElementById("dismissDataProtectionNoticeBtn");
 
   badge.className = "protection-badge";
   if (dataProtectionStatus.blocked) {
     badge.textContent = "已停止写入";
     badge.classList.add("danger");
-  } else if (dataProtectionStatus.externalBackupRequired) {
-    badge.textContent = "待下载备份";
+  } else if (dataProtectionStatus.snapshotError) {
+    badge.textContent = "恢复点异常";
     badge.classList.add("warning");
   } else {
     badge.textContent = "已保护";
@@ -1249,11 +1273,13 @@ function renderDataProtection() {
     noticeText.textContent = "应用已停止新增和修改，避免覆盖恢复线索。请先导入最近的 JSON 备份。";
     noticePrimary.textContent = "前往导入备份";
     confirmEmpty.classList.remove("hidden");
+    dismissNotice.classList.add("hidden");
   } else if (dataProtectionStatus.externalBackupRequired) {
-    noticeTitle.textContent = "网站版本已更新，本地恢复点已创建";
-    noticeText.textContent = "再下载一份 JSON 到电脑，即使浏览器网站数据被清理也能恢复。";
-    noticePrimary.textContent = "下载升级备份";
+    noticeTitle.textContent = "本地恢复点写入失败";
+    noticeText.textContent = "现有学习数据仍保留。可以关闭此提示，并在设置中稍后重试创建恢复点；下载 JSON 备份仍是可选操作。";
+    noticePrimary.textContent = "查看数据保护";
     confirmEmpty.classList.add("hidden");
+    dismissNotice.classList.remove("hidden");
   }
 
   document.querySelectorAll("[data-open-modal]").forEach((button) => {

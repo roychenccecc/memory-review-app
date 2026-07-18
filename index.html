@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>自适应复习与错题管理器</title>
-    <link rel="stylesheet" href="styles.css?v=20260718-postpone1" />
+    <link rel="stylesheet" href="styles.css?v=20260718-protection2" />
   </head>
   <body>
     <div class="app-shell">
@@ -47,6 +47,7 @@
           <div class="data-protection-actions">
             <button class="primary" id="protectionNoticePrimaryBtn" type="button"></button>
             <button class="secondary hidden" id="confirmEmptyDatabaseBtn" type="button">确认使用空库</button>
+            <button class="icon-button protection-notice-dismiss hidden" id="dismissDataProtectionNoticeBtn" type="button" aria-label="关闭数据保护提示" title="关闭提示">×</button>
           </div>
         </section>
 
@@ -654,9 +655,9 @@
 
     <datalist id="tagOptions"></datalist>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="review-engine.js?v=20260718-postpone1"></script>
-    <script src="review-matcher.js?v=20260718-postpone1"></script>
-    <script src="data-protection.js?v=20260718-postpone1"></script>
-    <script src="app.js?v=20260718-postpone1"></script>
+    <script src="review-engine.js?v=20260718-protection2"></script>
+    <script src="review-matcher.js?v=20260718-protection2"></script>
+    <script src="data-protection.js?v=20260718-protection2"></script>
+    <script src="app.js?v=20260718-protection2"></script>
   </body>
 </html>
