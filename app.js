@@ -88,9 +88,22 @@ document.addEventListener("DOMContentLoaded", async () => {
   db = await openDb();
   await loadState();
   const protectionResult = await initializeDataProtection();
+  let repairedSubjectTags = 0;
+  let repairedBridgeSubjects = 0;
+  let subjectRepairError = "";
+  let subjectRepairWarning = "";
   let repairedLegacyTags = 0;
   let repairedReviewChains = 0;
   if (!dataProtectionStatus.blocked) {
+    try {
+      const subjectRepair = await repairCanonicalSubjectTagRoots();
+      repairedSubjectTags = subjectRepair.count;
+      subjectRepairWarning = subjectRepair.snapshotWarning;
+      repairedBridgeSubjects = repairCanonicalBridgeSubjects(subjectRepair.idRewrites);
+    } catch (error) {
+      console.error("统一科目知识树失败", error);
+      subjectRepairError = error?.message || "未知错误";
+    }
     repairedLegacyTags = await repairLegacySplitEnumerationTags();
     repairedReviewChains = await repairReviewScoreChainsIfNeeded();
     await refreshSchedule();
@@ -108,6 +121,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     scheduleDataProtectionSnapshot("启动后恢复点");
   }
   if (protectionResult.restored) toast("检测到异常空库，已自动从最近恢复点找回数据。");
+  if (repairedSubjectTags) toast(`已合并 ${repairedSubjectTags} 处旧科目简称知识树。`);
+  if (repairedBridgeSubjects) toast("已将复习草稿中的科目简称统一为全称。");
+  if (subjectRepairWarning) toast(subjectRepairWarning);
+  if (subjectRepairError) toast(`科目知识树自动迁移未完成：${subjectRepairError}`);
   if (repairedLegacyTags) toast(`已修复 ${repairedLegacyTags} 条旧的顿号误拆标签。`);
   if (repairedReviewChains) toast(`已重新计算 ${repairedReviewChains} 条内容的复习分数链。`);
 });
@@ -183,6 +200,77 @@ async function loadState() {
   state.mistakes = mistakes.sort(byDateDesc);
   state.logs = logs.sort(byDateDesc);
   state.tasks = tasks.sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
+}
+
+async function repairCanonicalSubjectTagRoots() {
+  const migration = globalThis.CanonicalSubjects?.planTagRootMigration({
+    tags: state.tags,
+    study: state.study,
+    mistakes: state.mistakes,
+    logs: state.logs,
+  }, { updatedAt: now() });
+  if (!migration?.changed) return { count: 0, idRewrites: {}, snapshotWarning: "" };
+
+  try {
+    const snapshot = await createLocalSnapshot("科目知识树合并前保护", { force: true });
+    if (!snapshot) throw new Error("未能创建迁移前恢复点");
+  } catch (error) {
+    try {
+      await recordSnapshotFailure(error);
+    } catch (guardError) {
+      console.error("记录迁移前保护失败状态失败", guardError);
+    }
+    throw new Error(`迁移前保护失败：${error?.message || "未知错误"}`);
+  }
+
+  await applyCanonicalSubjectTagMigration(migration);
+  await loadState();
+
+  let snapshotWarning = "";
+  try {
+    const snapshot = await createLocalSnapshot("科目知识树合并完成", { force: true });
+    if (!snapshot) throw new Error("未能创建迁移完成恢复点");
+  } catch (error) {
+    try {
+      await recordSnapshotFailure(error);
+    } catch (guardError) {
+      console.error("记录迁移完成保护失败状态失败", guardError);
+    }
+    snapshotWarning = `科目知识树已合并，但完成恢复点创建失败：${error?.message || "未知错误"}`;
+  }
+
+  return {
+    count: migration.removedTagIds.length + migration.changedTags.length,
+    idRewrites: migration.idRewrites,
+    snapshotWarning,
+  };
+}
+
+function applyCanonicalSubjectTagMigration(migration) {
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(["tags", "study", "mistakes", "logs"], "readwrite");
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error || new Error("科目知识树迁移失败。"));
+    transaction.onabort = () => reject(transaction.error || new Error("科目知识树迁移已回滚。"));
+    const tagsStore = transaction.objectStore("tags");
+    const studyStore = transaction.objectStore("study");
+    const mistakesStore = transaction.objectStore("mistakes");
+    const logsStore = transaction.objectStore("logs");
+    for (const tagId of migration.removedTagIds) tagsStore.delete(tagId);
+    for (const tag of migration.changedTags) tagsStore.put(tag);
+    for (const item of migration.changedStudy) studyStore.put(item);
+    for (const item of migration.changedMistakes) mistakesStore.put(item);
+    for (const log of migration.changedLogs) logsStore.put(log);
+  });
+}
+
+function repairCanonicalBridgeSubjects(idRewrites = {}) {
+  if (!globalThis.CanonicalSubjects) return 0;
+  const bridge = readBridgeState();
+  const canonical = globalThis.CanonicalSubjects.canonicalizeBridgeState(bridge, { idRewrites });
+  if (JSON.stringify(canonical) === JSON.stringify(bridge)) return 0;
+  writeBridgeState(canonical);
+  return 1;
 }
 
 function getStoreValue(store, key) {
@@ -795,7 +883,8 @@ function decodeBase64UrlUtf8(value) {
 function normalizeCodexReviewDraft(raw) {
   if (!raw || typeof raw !== "object") return null;
   const target = raw.target && typeof raw.target === "object" ? raw.target : {};
-  const subject = String(raw.subject || target.subject || "").trim();
+  const rawSubject = String(raw.subject || target.subject || "").trim();
+  const subject = globalThis.CanonicalSubjects?.canonicalSubjectName(rawSubject) || rawSubject;
   const chapter = String(raw.chapter || target.chapter || "").trim();
   const fallbackTitle = normalizeReviewChapterKey(`${subject} ${chapter}`);
   const title = normalizeReviewChapterKey(target.title || raw.title || fallbackTitle);
@@ -815,7 +904,7 @@ function normalizeCodexReviewDraft(raw) {
       sourceType: "study",
       sourceId: String(target.sourceId || "").trim(),
       title,
-      tagPath: String(target.tagPath || "").trim(),
+      tagPath: globalThis.CanonicalSubjects?.canonicalizeTagPath(target.tagPath) || String(target.tagPath || "").trim(),
     },
     overallScore: score,
     sectionScores: Array.isArray(raw.sectionScores) ? raw.sectionScores : [],
@@ -895,17 +984,17 @@ function parseReviewChapterName(value) {
 }
 
 function normalizeReviewChapterKey(value) {
-  return String(value || "")
+  const normalized = String(value || "")
     .replace(/[《》"'“”‘’]/g, "")
     .replace(/[>＞/\\\-—_：:，,、]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+  return globalThis.CanonicalSubjects?.canonicalizeChapterTitle(normalized) || normalized;
 }
 
 function normalizeReviewSubject(value) {
   const subject = normalizeLooseText(value);
-  if (subject === "普通心理学" || subject === "普心") return "普心";
-  return subject;
+  return globalThis.CanonicalSubjects?.canonicalSubjectName(subject) || subject;
 }
 
 function normalizeLooseText(value) {
@@ -3810,7 +3899,7 @@ function sameArray(first = [], second = []) {
 }
 
 async function ensureTagPath(rawName) {
-  const normalized = normalizeTagToken(rawName);
+  const normalized = canonicalTagPath(rawName);
   const existingByPath = state.tags.find((tag) => canonicalTagPath(tagPath(tag)) === canonicalTagPath(normalized));
   if (existingByPath) return existingByPath;
 
@@ -3839,8 +3928,10 @@ async function ensureTagPath(rawName) {
 }
 
 async function createOrUpdateTag({ name, parentId = "", importance = "medium", color = "", tagType = "" }) {
-  const cleanName = name.trim();
   const cleanParentId = parentId || "";
+  const cleanName = cleanParentId
+    ? name.trim()
+    : (globalThis.CanonicalSubjects?.canonicalSubjectName(name) || name.trim());
   const cleanTagType = tagType || (cleanParentId ? "knowledge" : "");
   let tag = state.tags.find((row) => {
     if (row.name !== cleanName || (row.parentId || "") !== cleanParentId) return false;
@@ -4246,7 +4337,9 @@ async function renameTag(idValue) {
   if (!tag) return;
   const nextName = window.prompt("输入新的知识点名称", tag.name);
   if (nextName === null) return;
-  const cleanName = nextName.trim();
+  const cleanName = tag.parentId
+    ? nextName.trim()
+    : (globalThis.CanonicalSubjects?.canonicalSubjectName(nextName) || nextName.trim());
   if (!cleanName) {
     toast("名称不能为空。");
     return;
@@ -4469,17 +4562,26 @@ async function importJson(event) {
   try {
     const parsed = JSON.parse(await file.text());
     const imported = normalizeBackupPayload(parsed);
-    const importedCounts = dataCounts(imported);
+    const importedMigration = globalThis.CanonicalSubjects?.planTagRootMigration(imported, { updatedAt: now() });
+    const canonicalImported = importedMigration ? {
+      ...imported,
+      tags: importedMigration.tags,
+      study: importedMigration.study,
+      mistakes: importedMigration.mistakes,
+      logs: importedMigration.logs,
+    } : imported;
+    const importedCounts = dataCounts(canonicalImported);
     if (!hasMeaningfulData(importedCounts)) {
       throw new Error("备份中没有学习、错题、知识点或复习记录，已拒绝覆盖当前数据。");
     }
     if (hasMeaningfulData(dataCounts(currentStateBackupPayload())) && !dataProtectionStatus.blocked) {
       await createLocalSnapshot("导入 JSON 前保护", { force: true });
     }
-    await replaceAllDataAtomically(imported);
+    await replaceAllDataAtomically(canonicalImported);
     replaced = true;
     dataProtectionStatus.blocked = false;
     await loadState();
+    repairCanonicalBridgeSubjects(importedMigration?.idRewrites || {});
     await refreshSchedule();
     await createLocalSnapshot("导入 JSON 完成", { force: true });
     await markExternalBackupCompleted();
@@ -4665,7 +4767,8 @@ function normalizeTagToken(value) {
 }
 
 function canonicalTagPath(value) {
-  return normalizeTagToken(value).replace(/\s*>\s*/g, ">");
+  const normalized = normalizeTagToken(value).replace(/\s*>\s*/g, ">");
+  return globalThis.CanonicalSubjects?.canonicalizeTagPath(normalized) || normalized;
 }
 
 function findTagByPath(value) {

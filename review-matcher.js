@@ -1,24 +1,33 @@
 (function reviewMatcherModule(root, factory) {
-  const api = factory();
+  const canonicalSubjects = typeof module === "object" && module.exports
+    ? require("./canonical-subjects.js")
+    : root?.CanonicalSubjects;
+  const api = factory(canonicalSubjects);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.ReviewMatcher = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function createReviewMatcher() {
+})(typeof globalThis !== "undefined" ? globalThis : this, function createReviewMatcher(canonicalSubjects) {
   const SUBJECT_ALIASES = new Map([
-    ["普心", "普心"],
-    ["普通心理学", "普心"],
-    ["发展", "发展"],
-    ["发展心理学", "发展"],
-    ["实验", "实验"],
-    ["实验心理学", "实验"],
-    ["统计", "统计"],
-    ["心理学统计", "统计"],
-    ["心理统计学", "统计"],
-    ["行为科学统计", "统计"],
-    ["教育", "教育"],
-    ["教育心理学", "教育"],
-    ["测量", "测量"],
-    ["心理测量", "测量"],
-    ["心理测量学", "测量"],
+    ["普心", "普通心理学"],
+    ["普通心理学", "普通心理学"],
+    ["发展", "发展心理学"],
+    ["发心", "发展心理学"],
+    ["发展心理学", "发展心理学"],
+    ["实验", "实验心理学"],
+    ["实心", "实验心理学"],
+    ["实验心理学", "实验心理学"],
+    ["统计", "心理统计学"],
+    ["心统", "心理统计学"],
+    ["心理统计", "心理统计学"],
+    ["心理学统计", "心理统计学"],
+    ["心理统计学", "心理统计学"],
+    ["行为科学统计", "心理统计学"],
+    ["教育", "教育心理学"],
+    ["教心", "教育心理学"],
+    ["教育心理学", "教育心理学"],
+    ["测量", "心理测量学"],
+    ["测心", "心理测量学"],
+    ["心理测量", "心理测量学"],
+    ["心理测量学", "心理测量学"],
   ]);
   const SUBJECT_PREFIXES = [...SUBJECT_ALIASES.keys()].sort((a, b) => b.length - a.length);
   const GENERIC_CHAPTER_WORDS = ["心理学", "推断统计", "心理统计", "基础", "第一章", "第二章"];
@@ -39,7 +48,7 @@
 
   function normalizeSubject(value) {
     const key = compact(value);
-    return SUBJECT_ALIASES.get(key) || key;
+    return canonicalSubjects?.canonicalSubjectName(key) || SUBJECT_ALIASES.get(key) || key;
   }
 
   function stripLeadingOrdinal(value) {
@@ -167,7 +176,8 @@
     }
     const targetTokens = [target.subject, reducedChapter(target.chapter)].filter(Boolean);
     const pathMatch = (row.tagPaths || []).some((pathValue) => {
-      const normalized = compact(pathValue);
+      const canonicalPath = canonicalSubjects?.canonicalizeTagPath(pathValue) || pathValue;
+      const normalized = compact(canonicalPath);
       return targetTokens.every((token) => normalized.includes(token));
     });
     if (pathMatch) {
