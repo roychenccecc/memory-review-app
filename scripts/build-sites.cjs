@@ -7,6 +7,7 @@ const files = [
   { path: "/index.html", source: "index.html", type: "text/html; charset=utf-8" },
   { path: "/styles.css", source: "styles.css", type: "text/css; charset=utf-8" },
   { path: "/review-engine.js", source: "review-engine.js", type: "application/javascript; charset=utf-8" },
+  { path: "/canonical-subjects.js", source: "canonical-subjects.js", type: "application/javascript; charset=utf-8" },
   { path: "/review-matcher.js", source: "review-matcher.js", type: "application/javascript; charset=utf-8" },
   { path: "/data-protection.js", source: "data-protection.js", type: "application/javascript; charset=utf-8" },
   { path: "/app.js", source: "app.js", type: "application/javascript; charset=utf-8" },
