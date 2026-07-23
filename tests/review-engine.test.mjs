@@ -65,6 +65,8 @@ test("knowledge score combines learning and penalized mistakes", () => {
 test("review day changes at 08:00 local time", () => {
   assert.equal(engine.reviewBusinessDate(new Date(2026, 6, 15, 7, 59)), "2026-07-14");
   assert.equal(engine.reviewBusinessDate(new Date(2026, 6, 15, 8, 0)), "2026-07-15");
+  assert.equal(engine.millisecondsUntilReviewDayBoundary(new Date(2026, 6, 15, 7, 59)), 60_000);
+  assert.equal(engine.millisecondsUntilReviewDayBoundary(new Date(2026, 6, 15, 8, 0)), 86_400_000);
 });
 
 test("postpone moves today, overdue, and future tasks forward by one real day", () => {

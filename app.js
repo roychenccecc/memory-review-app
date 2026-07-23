@@ -22,6 +22,7 @@ const {
   diffDays,
   intervalStateAfterReview,
   maxDate,
+  millisecondsUntilReviewDayBoundary,
   minDate,
   postponedTaskDate,
   resultFromPercent,
@@ -56,6 +57,10 @@ let activeCodexReviewDraftId = "";
 let bridgeCompletionProcessing = false;
 let protectionSnapshotTimer = 0;
 let protectionSnapshotInProgress = false;
+let renderedReviewDate = "";
+let reviewDayRefreshTimer = 0;
+let reviewDayRefreshInProgress = false;
+let reviewDayRefreshBound = false;
 let dataProtectionStatus = {
   blocked: false,
   externalBackupRequired: false,
@@ -111,6 +116,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindEvents();
   setDefaultDates();
   render();
+  bindReviewDayRefresh();
+  scheduleReviewDayRefresh();
   if (!dataProtectionStatus.blocked) {
     bindBridgeEvents();
     ensureCodexReviewDraftDialog();
@@ -1297,7 +1304,8 @@ function switchView(view) {
 }
 
 function render() {
-  document.getElementById("todayText").textContent = `${formatDate(currentReviewDate())} · 复习日 08:00 切换 · 本地离线数据`;
+  renderedReviewDate = currentReviewDate();
+  document.getElementById("todayText").textContent = `${formatDate(renderedReviewDate)} · 复习日 08:00 切换 · 本地离线数据`;
   document.getElementById("calendarSubscribeUrl").textContent = `${window.location.origin}/calendar.ics`;
   renderTagOptions();
   renderTagParentOptions();
@@ -1406,21 +1414,21 @@ function renderDashboard() {
   visible = visible.sort(taskSort).slice(0, 80);
 
   document.getElementById("taskList").innerHTML = `
-    <div class="task-section">
+    <div class="task-section" data-review-section="due" data-review-date="${escapeAttr(today)}">
       <div class="section-title">
         <h4>待复习</h4>
         <span>${visible.length} 项</span>
       </div>
       ${visible.length ? visible.map(renderTaskCard).join("") : empty("现在没有符合条件的待复习任务。")}
     </div>
-    <div class="task-section reviewed">
+    <div class="task-section reviewed" data-review-section="reviewed" data-review-date="${escapeAttr(today)}">
       <div class="section-title">
         <h4>今日已复习</h4>
         <span>${reviewedToday.length} 项</span>
       </div>
       ${reviewedToday.length ? reviewedToday.map(renderReviewedTaskCard).join("") : empty("今天还没有记录复习结果。")}
     </div>
-    <div class="task-section future">
+    <div class="task-section future" data-review-section="future" data-review-date="${escapeAttr(today)}">
       <div class="section-title">
         <h4>未来复习计划</h4>
         <span>${future.length} 项</span>
@@ -1486,10 +1494,35 @@ function renderTaskCard(task) {
   const tags = tagsFor(item.tagIds);
   const title = task.sourceType === "study" ? item.title : item.location || firstLine(item.question) || "未命名错题";
   const detail = task.sourceType === "study" ? item.notes : item.reason;
+  const tagPaths = tagPathList(item.tagIds);
+  const reviewPayload = {
+    taskId: task.id || `${task.sourceType}:${task.sourceId}:${task.scheduledDate}`,
+    sourceType: task.sourceType,
+    sourceId: task.sourceId,
+    title,
+    scheduledDate: task.scheduledDate,
+    memoryScore: score,
+    tagPaths,
+    detail: detail || "",
+  };
+  const codexReviewUrl = globalThis.CodexReviewLinks?.buildCodexReviewUrl(reviewPayload) || "";
   const dateLabel = task.scheduledDate < currentReviewDate() ? "逾期" : "计划";
   const postponed = isPostponedBeyondToday(task);
   return `
-    <article class="task-card">
+    <article
+      class="task-card"
+      data-review-task="true"
+      data-review-task-status="pending"
+      data-task-id="${escapeAttr(reviewPayload.taskId)}"
+      data-source-type="${escapeAttr(task.sourceType)}"
+      data-source-id="${escapeAttr(task.sourceId)}"
+      data-title="${escapeAttr(title)}"
+      data-scheduled-date="${escapeAttr(task.scheduledDate)}"
+      data-memory-score="${escapeAttr(score)}"
+      data-tag-paths="${escapeAttr(tagPaths.join("；"))}"
+      data-detail="${escapeAttr(detail || "")}"
+      data-codex-review-url="${escapeAttr(codexReviewUrl)}"
+    >
       <div class="memory-strip ${scoreClass(score)}"></div>
       <div>
         <h4 class="card-title">${escapeHtml(title)}</h4>
@@ -4886,6 +4919,45 @@ function capAtExam(dateString) {
 
 function currentReviewDate() {
   return reviewBusinessDate(new Date());
+}
+
+function bindReviewDayRefresh() {
+  if (reviewDayRefreshBound) return;
+  reviewDayRefreshBound = true;
+  window.addEventListener("focus", () => refreshReviewDayIfNeeded());
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") refreshReviewDayIfNeeded();
+  });
+}
+
+function scheduleReviewDayRefresh() {
+  clearTimeout(reviewDayRefreshTimer);
+  const delay = millisecondsUntilReviewDayBoundary(new Date()) + 250;
+  reviewDayRefreshTimer = window.setTimeout(() => refreshReviewDayIfNeeded(true), delay);
+}
+
+async function refreshReviewDayIfNeeded(force = false) {
+  const nextReviewDate = currentReviewDate();
+  if (reviewDayRefreshInProgress) {
+    scheduleReviewDayRefresh();
+    return;
+  }
+  if (!force && nextReviewDate === renderedReviewDate) {
+    scheduleReviewDayRefresh();
+    return;
+  }
+
+  reviewDayRefreshInProgress = true;
+  try {
+    if (!dataProtectionStatus.blocked) await refreshSchedule();
+    render();
+  } catch (error) {
+    console.error("复习日刷新失败", error);
+    toast("08:00 复习计划刷新失败，请重新载入页面。");
+  } finally {
+    reviewDayRefreshInProgress = false;
+    scheduleReviewDayRefresh();
+  }
 }
 
 function reviewDateFromTimestamp(value) {
