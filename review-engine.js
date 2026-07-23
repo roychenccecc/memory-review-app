@@ -81,6 +81,13 @@
     return toDateInput(shifted);
   }
 
+  function millisecondsUntilReviewDayBoundary(date = new Date(), startHour = REVIEW_DAY_START_HOUR) {
+    const boundary = new Date(date);
+    boundary.setHours(Number(startHour), 0, 0, 0);
+    if (date >= boundary) boundary.setDate(boundary.getDate() + 1);
+    return Math.max(0, boundary.getTime() - date.getTime());
+  }
+
   function addDays(dateString, days) {
     const date = new Date(`${dateString}T12:00:00`);
     date.setDate(date.getDate() + Number(days));
@@ -239,6 +246,7 @@
     leafKnowledgeSummary,
     maxDate,
     minDate,
+    millisecondsUntilReviewDayBoundary,
     parentKnowledgeSummary,
     postponedTaskDate,
     resultFromPercent,
