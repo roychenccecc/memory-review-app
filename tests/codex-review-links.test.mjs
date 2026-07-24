@@ -5,7 +5,7 @@ await import("../codex-review-links.js");
 
 const links = globalThis.CodexReviewLinks;
 
-test("study review links preserve Chinese task context and use the 312 workspace", () => {
+test("study review links use a minimal Chinese prompt and the 312 workspace", () => {
   const url = links.buildCodexReviewUrl({
     taskId: "task-中文",
     sourceType: "study",
@@ -23,11 +23,22 @@ test("study review links preserve Chinese task context and use the 312 workspace
     "/Users/newlife/Documents/Codex/2026-06-11/new-chat/work/312-review-assistant"
   );
   const prompt = parsed.searchParams.get("prompt");
-  assert.match(prompt, /实验心理学 第二章/);
-  assert.match(prompt, /实验心理学 > 变量与设计/);
-  assert.match(prompt, /study-1/);
-  assert.match(prompt, /AGENTS\.md/);
-  assert.match(prompt, /312-review-manager-handoff/);
+  assert.equal(prompt, "带我复习：实验心理学 第二章");
+  assert.doesNotMatch(prompt, /实验心理学 > 变量与设计/);
+  assert.doesNotMatch(prompt, /study-1/);
+  assert.doesNotMatch(prompt, /Chrome|AGENTS\.md|312-review-manager-handoff/);
+});
+
+test("study review links preserve spaces and punctuation in titles", () => {
+  const url = links.buildCodexReviewUrl({
+    sourceType: "study",
+    sourceId: "study-punctuation",
+    title: "心理统计：t 检验（独立样本）",
+  });
+  assert.equal(
+    new URL(url).searchParams.get("prompt"),
+    "带我复习：心理统计：t 检验（独立样本）"
+  );
 });
 
 test("wrong-question tasks do not create Codex review links", () => {
