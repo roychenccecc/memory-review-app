@@ -13,6 +13,14 @@ test("database identity stays stable and upgrades add protection stores", () => 
   assert.doesNotMatch(appSource, /indexedDB\.deleteDatabase/);
 });
 
+test("daily review capacity migrates the legacy default from six to four once", () => {
+  assert.match(appSource, /const DEFAULT_DAILY_REVIEW_LIMIT = 4;/);
+  assert.match(appSource, /const LEGACY_DEFAULT_DAILY_REVIEW_LIMIT = 6;/);
+  assert.match(appSource, /const DAILY_REVIEW_LIMIT_MIGRATION_ID = "daily-review-limit-default-v4-20260727";/);
+  assert.match(appSource, /migratedDailyReviewLimit = await migrateDailyReviewLimitDefault\(\);/);
+  assert.match(indexSource, /name="dailyReviewLimit"[^>]+value="4"/);
+});
+
 test("JSON import validates and snapshots before the atomic replacement", () => {
   const start = appSource.indexOf("async function importJson");
   const end = appSource.indexOf("function getAllItems", start);

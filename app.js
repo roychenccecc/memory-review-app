@@ -6,6 +6,9 @@ const ALL_STORES = [...STORES, ...INTERNAL_STORES];
 const DATA_GUARD_META_ID = "data-guard";
 const DATA_GUARD_LOCAL_KEY = "memory-review-data-guard-v1";
 const MAX_LOCAL_SNAPSHOTS = 6;
+const DEFAULT_DAILY_REVIEW_LIMIT = 4;
+const LEGACY_DEFAULT_DAILY_REVIEW_LIMIT = 6;
+const DAILY_REVIEW_LIMIT_MIGRATION_ID = "daily-review-limit-default-v4-20260727";
 const APP_BUILD_ID = new URL(document.currentScript?.src || window.location.href).searchParams.get("v") || "unversioned";
 const {
   backupFingerprint,
@@ -77,7 +80,7 @@ let state = {
     examDate: "",
     cramWindow: 14,
     dailyCramLimit: 20,
-    dailyReviewLimit: 6,
+    dailyReviewLimit: DEFAULT_DAILY_REVIEW_LIMIT,
     questionTypes: DEFAULT_QUESTION_TYPES,
   },
   tags: [],
@@ -99,7 +102,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   let subjectRepairWarning = "";
   let repairedLegacyTags = 0;
   let repairedReviewChains = 0;
+  let migratedDailyReviewLimit = false;
   if (!dataProtectionStatus.blocked) {
+    migratedDailyReviewLimit = await migrateDailyReviewLimitDefault();
     try {
       const subjectRepair = await repairCanonicalSubjectTagRoots();
       repairedSubjectTags = subjectRepair.count;
@@ -134,6 +139,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (subjectRepairError) toast(`科目知识树自动迁移未完成：${subjectRepairError}`);
   if (repairedLegacyTags) toast(`已修复 ${repairedLegacyTags} 条旧的顿号误拆标签。`);
   if (repairedReviewChains) toast(`已重新计算 ${repairedReviewChains} 条内容的复习分数链。`);
+  if (migratedDailyReviewLimit) toast("每日复习上限已调整为 4 条。");
 });
 
 function openDb() {
@@ -199,7 +205,11 @@ async function loadState() {
   state.settings = {
     ...state.settings,
     ...(settings[0] || {}),
-    dailyReviewLimit: clamp(Number(settings[0]?.dailyReviewLimit ?? state.settings.dailyReviewLimit ?? 6), 1, 80),
+    dailyReviewLimit: clamp(
+      Number(settings[0]?.dailyReviewLimit ?? state.settings.dailyReviewLimit ?? DEFAULT_DAILY_REVIEW_LIMIT),
+      1,
+      80
+    ),
     questionTypes: normalizeQuestionTypes(settings[0]?.questionTypes),
   };
   state.tags = tags.sort(byCreated);
@@ -207,6 +217,36 @@ async function loadState() {
   state.mistakes = mistakes.sort(byDateDesc);
   state.logs = logs.sort(byDateDesc);
   state.tasks = tasks.sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
+}
+
+async function migrateDailyReviewLimitDefault() {
+  const marker = await getStoreValue("meta", DAILY_REVIEW_LIMIT_MIGRATION_ID);
+  if (marker) return false;
+
+  const storedSettings = await getStoreValue("settings", "main");
+  const storedLimit = Number(storedSettings?.dailyReviewLimit);
+  const shouldAdoptNewDefault = !Number.isFinite(storedLimit)
+    || storedLimit === LEGACY_DEFAULT_DAILY_REVIEW_LIMIT;
+
+  if (shouldAdoptNewDefault) {
+    state.settings = {
+      ...state.settings,
+      ...(storedSettings || {}),
+      id: "main",
+      dailyReviewLimit: DEFAULT_DAILY_REVIEW_LIMIT,
+      updatedAt: now(),
+    };
+    await put("settings", state.settings);
+  }
+
+  await put("meta", {
+    id: DAILY_REVIEW_LIMIT_MIGRATION_ID,
+    previousLimit: Number.isFinite(storedLimit) ? storedLimit : null,
+    appliedLimit: shouldAdoptNewDefault ? DEFAULT_DAILY_REVIEW_LIMIT : storedLimit,
+    changed: shouldAdoptNewDefault,
+    appliedAt: now(),
+  });
+  return shouldAdoptNewDefault;
 }
 
 async function repairCanonicalSubjectTagRoots() {
@@ -1282,7 +1322,8 @@ function setDefaultDates() {
   document.querySelector("#settingsForm [name='examDate']").value = state.settings.examDate || "";
   document.querySelector("#settingsForm [name='cramWindow']").value = state.settings.cramWindow || 14;
   document.querySelector("#settingsForm [name='dailyCramLimit']").value = state.settings.dailyCramLimit || 20;
-  document.querySelector("#settingsForm [name='dailyReviewLimit']").value = state.settings.dailyReviewLimit || 6;
+  document.querySelector("#settingsForm [name='dailyReviewLimit']").value =
+    state.settings.dailyReviewLimit || DEFAULT_DAILY_REVIEW_LIMIT;
 }
 
 function switchView(view) {
@@ -2903,7 +2944,11 @@ async function saveSettings(event) {
     examDate: data.get("examDate"),
     cramWindow: Number(data.get("cramWindow")) || 14,
     dailyCramLimit: Number(data.get("dailyCramLimit")) || 20,
-    dailyReviewLimit: clamp(Number(data.get("dailyReviewLimit")) || 6, 1, 80),
+    dailyReviewLimit: clamp(
+      Number(data.get("dailyReviewLimit")) || DEFAULT_DAILY_REVIEW_LIMIT,
+      1,
+      80
+    ),
     updatedAt: now(),
   };
   await put("settings", state.settings);
@@ -3563,7 +3608,7 @@ function isPostponedBeyondToday(task) {
 }
 
 function dailyReviewLimit() {
-  return clamp(Number(state.settings.dailyReviewLimit) || 6, 1, 80);
+  return clamp(Number(state.settings.dailyReviewLimit) || DEFAULT_DAILY_REVIEW_LIMIT, 1, 80);
 }
 
 async function refreshSchedule() {

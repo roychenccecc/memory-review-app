@@ -49,7 +49,7 @@ test("wrong-question tasks do not create Codex review links", () => {
   }), "");
 });
 
-test("daily links deduplicate study records and respect the six-item limit", () => {
+test("daily links deduplicate study records and respect the four-item limit", () => {
   const tasks = [
     { sourceType: "study", sourceId: "study-0", title: "重复项" },
     { sourceType: "study", sourceId: "study-0", title: "重复项" },
@@ -61,9 +61,9 @@ test("daily links deduplicate study records and respect the six-item limit", () 
     })),
   ];
   const result = links.buildDailyReviewLinks(tasks);
-  assert.equal(result.length, 6);
+  assert.equal(result.length, 4);
   assert.deepEqual(
     result.map((task) => task.sourceId),
-    ["study-0", "study-1", "study-2", "study-3", "study-4", "study-5"]
+    ["study-0", "study-1", "study-2", "study-3"]
   );
 });

@@ -29,7 +29,7 @@ test("review interval advances at 70 percent and protects low recalls", () => {
   assert.deepEqual(engine.intervalStateAfterReview(item, 29, 85), { index: 0, interval: 1 });
 });
 
-test("today reviewed plus pending reviews never exceeds six", () => {
+test("today reviewed plus pending reviews never exceeds four by default", () => {
   const tasks = Array.from({ length: 6 }, (_, index) => ({
     id: `task-${index}`,
     earliestDate: "2026-07-15",
@@ -38,11 +38,11 @@ test("today reviewed plus pending reviews never exceeds six", () => {
   }));
   const queued = engine.applyDailyCapacity(tasks, {
     today: "2026-07-15",
-    limit: 6,
-    reviewedCount: 5,
+    reviewedCount: 3,
   });
   assert.equal(queued.filter((task) => task.scheduledDate === "2026-07-15").length, 1);
-  assert.equal(queued.filter((task) => task.scheduledDate === "2026-07-16").length, 5);
+  assert.equal(queued.filter((task) => task.scheduledDate === "2026-07-16").length, 4);
+  assert.equal(queued.filter((task) => task.scheduledDate === "2026-07-17").length, 1);
   assert.equal(queued[0].id, "task-0");
 });
 

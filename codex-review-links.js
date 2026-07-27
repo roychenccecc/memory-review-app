@@ -31,7 +31,7 @@
   }
 
   function buildDailyReviewLinks(tasks = [], options = {}) {
-    const limit = Math.max(1, Number(options.limit) || 6);
+    const limit = Math.max(1, Number(options.limit) || 4);
     const seen = new Set();
     const links = [];
     for (const task of tasks) {

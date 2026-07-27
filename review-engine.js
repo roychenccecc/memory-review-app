@@ -4,6 +4,7 @@
   const BASE_INTERVALS = Object.freeze([1, 2, 4, 7, 15, 30]);
   const TAG_SCORE_WEIGHT = Object.freeze({ veryHigh: 5, high: 3, medium: 2, low: 1 });
   const REVIEW_DAY_START_HOUR = 8;
+  const DEFAULT_DAILY_REVIEW_LIMIT = 4;
   const TAG_STUDY_RATIO = 0.6;
   const TAG_MISTAKE_RATIO = 0.4;
   const MISTAKE_COUNT_PENALTY = 3;
@@ -162,7 +163,7 @@
 
   function applyDailyCapacity(tasks = [], options = {}) {
     const today = options.today;
-    const limit = clamp(Number(options.limit) || 6, 1, 80);
+    const limit = clamp(Number(options.limit) || DEFAULT_DAILY_REVIEW_LIMIT, 1, 80);
     const examDate = options.examDate || "";
     const reviewedCount = Math.min(limit, Math.max(0, Number(options.reviewedCount) || 0));
     const counts = new Map([[today, reviewedCount]]);
@@ -232,6 +233,7 @@
 
   global.ReviewEngine = Object.freeze({
     BASE_INTERVALS,
+    DEFAULT_DAILY_REVIEW_LIMIT,
     TAG_SCORE_WEIGHT,
     REVIEW_DAY_START_HOUR,
     addDays,
