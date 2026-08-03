@@ -70,8 +70,9 @@ test("subject-root migration snapshots around one atomic reference transaction",
   assert.match(migrationSource, /recordSnapshotFailure/);
 });
 
-test("Sites build includes the canonical subject module", () => {
+test("Sites build includes the required runtime modules", () => {
   assert.match(buildSource, /canonical-subjects\.js/);
+  assert.match(buildSource, /codex-handoff-v2-overlay\.js/);
 });
 
 test("the local guard preserves recovery and external-backup state", () => {
