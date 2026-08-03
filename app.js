@@ -1346,7 +1346,7 @@ function switchView(view) {
 
 function render() {
   renderedReviewDate = currentReviewDate();
-  document.getElementById("todayText").textContent = `${formatDate(renderedReviewDate)} · 复习日 08:00 切换 · 本地离线数据`;
+  document.getElementById("todayText").textContent = `${formatDate(renderedReviewDate)} · 复习日 03:00 切换 · 本地离线数据`;
   document.getElementById("calendarSubscribeUrl").textContent = `${window.location.origin}/calendar.ics`;
   renderTagOptions();
   renderTagParentOptions();
@@ -4998,7 +4998,7 @@ async function refreshReviewDayIfNeeded(force = false) {
     render();
   } catch (error) {
     console.error("复习日刷新失败", error);
-    toast("08:00 复习计划刷新失败，请重新载入页面。");
+    toast("03:00 复习计划刷新失败，请重新载入页面。");
   } finally {
     reviewDayRefreshInProgress = false;
     scheduleReviewDayRefresh();

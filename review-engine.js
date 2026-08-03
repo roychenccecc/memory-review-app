@@ -3,7 +3,7 @@
 
   const BASE_INTERVALS = Object.freeze([1, 2, 4, 7, 15, 30]);
   const TAG_SCORE_WEIGHT = Object.freeze({ veryHigh: 5, high: 3, medium: 2, low: 1 });
-  const REVIEW_DAY_START_HOUR = 8;
+  const REVIEW_DAY_START_HOUR = 3;
   const DEFAULT_DAILY_REVIEW_LIMIT = 4;
   const TAG_STUDY_RATIO = 0.6;
   const TAG_MISTAKE_RATIO = 0.4;
