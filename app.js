@@ -120,6 +120,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
   bindEvents();
   setDefaultDates();
+  initializeV52TodaySync();
   render();
   bindReviewDayRefresh();
   scheduleReviewDayRefresh();
@@ -1266,6 +1267,8 @@ function bindEvents() {
   document.getElementById("createLocalSnapshotBtn").addEventListener("click", createManualProtectionSnapshot);
   document.getElementById("restoreLocalSnapshotBtn").addEventListener("click", restoreLatestLocalSnapshot);
   document.getElementById("downloadProtectionBackupBtn").addEventListener("click", exportJson);
+  document.getElementById("v52SyncForm").addEventListener("submit", saveV52TodaySyncSettings);
+  document.getElementById("v52SyncNowBtn").addEventListener("click", syncV52TodayNow);
   document.getElementById("protectionNoticePrimaryBtn").addEventListener("click", () => {
     openBackupImportSettings();
   });
@@ -1363,6 +1366,99 @@ function render() {
   renderHistory();
   setDefaultDates();
   renderDataProtection();
+  scheduleV52TodaySync("render");
+}
+
+function initializeV52TodaySync() {
+  const sync = globalThis.V52TodaySync;
+  if (!sync) {
+    renderV52TodaySyncStatus({
+      state: "ERROR",
+      message: "V52 同步模块没有载入。",
+      lastError: "请重新载入页面。",
+    });
+    return;
+  }
+  sync.initialize({
+    getSnapshotInput: buildV52TodaySnapshotInput,
+    onStatusChange: renderV52TodaySyncStatus,
+  });
+  window.addEventListener("pageshow", renderV52TodaySyncSettings);
+  renderV52TodaySyncSettings();
+}
+
+function renderV52TodaySyncSettings() {
+  const sync = globalThis.V52TodaySync;
+  if (!sync) return;
+  const config = sync.getConfig();
+  document.getElementById("v52SyncEnabled").checked = config.enabled;
+  document.getElementById("v52SyncEndpoint").value = config.endpointBase;
+  renderV52TodaySyncStatus(sync.getStatus());
+}
+
+function renderV52TodaySyncStatus(nextStatus = {}) {
+  const badge = document.getElementById("v52SyncBadge");
+  const summary = document.getElementById("v52SyncSummary");
+  const details = document.getElementById("v52SyncDetails");
+  const button = document.getElementById("v52SyncNowBtn");
+  if (!badge || !summary || !details || !button) return;
+  const labels = {
+    DISABLED: "未启用",
+    WAITING: "等待同步",
+    SYNCING: "同步中",
+    READY: "已同步",
+    ERROR: "连接异常",
+    LOCAL_PREVIEW: "本地预览",
+  };
+  const badgeClass = nextStatus.state === "READY"
+    ? "safe"
+    : nextStatus.state === "ERROR"
+      ? "danger"
+      : "warning";
+  badge.className = `protection-badge ${badgeClass}`;
+  badge.textContent = labels[nextStatus.state] || "未连接";
+  summary.textContent = nextStatus.message || "尚未建立连接。";
+  const parts = [];
+  if (nextStatus.lastSuccessAt) {
+    parts.push(`上次成功：${new Date(nextStatus.lastSuccessAt).toLocaleString("zh-CN", { hour12: false })}`);
+  }
+  if (Number.isInteger(nextStatus.lastTaskCount)) parts.push(`今日待办：${nextStatus.lastTaskCount} 项`);
+  if (nextStatus.pendingRefreshRequestId) parts.push("V52 正在等待本次刷新响应");
+  if (nextStatus.lastError) parts.push(`原因：${nextStatus.lastError}`);
+  details.textContent = parts.join(" · ") || "尚无成功同步记录。";
+  button.disabled = !globalThis.V52TodaySync?.getConfig().enabled || nextStatus.state === "SYNCING";
+}
+
+function saveV52TodaySyncSettings(event) {
+  event.preventDefault();
+  const sync = globalThis.V52TodaySync;
+  if (!sync) return;
+  const data = new FormData(event.currentTarget);
+  try {
+    const config = sync.saveConfig({
+      enabled: data.get("enabled") === "on",
+      endpointBase: data.get("endpointBase"),
+    });
+    renderV52TodaySyncSettings();
+    toast(config.enabled ? "V52 连接已保存，正在发送今日快照。" : "V52 今日待办同步已关闭。");
+  } catch (error) {
+    toast(error?.message || "V52 连接设置无效。");
+  }
+}
+
+async function syncV52TodayNow() {
+  const sync = globalThis.V52TodaySync;
+  if (!sync?.getConfig().enabled) {
+    toast("请先启用并保存 V52 同步设置。");
+    return;
+  }
+  await sync.pushNow("manual", { force: true });
+  const nextStatus = sync.getStatus();
+  toast(nextStatus.state === "READY" ? "V52 今日快照已同步。" : "同步未成功，原有快照不会被空列表覆盖。");
+}
+
+function scheduleV52TodaySync(reason) {
+  globalThis.V52TodaySync?.schedulePush(reason);
 }
 
 function renderDataProtection() {
@@ -1430,7 +1526,7 @@ function renderDashboard() {
   const tasks = buildDisplayTasks();
   const visibleTasks = tasks.filter((task) => !wasTaskReviewedToday(task));
   const today = currentReviewDate();
-  const due = visibleTasks.filter((task) => task.scheduledDate <= today && task.status === "pending");
+  const due = buildTodayDueTasks(tasks, today);
   const overdue = due.filter((task) => task.scheduledDate < today);
   const cram = visibleTasks.filter((task) => task.isCram && task.status === "pending" && task.scheduledDate <= today);
   const future = visibleTasks
@@ -3553,6 +3649,37 @@ function buildDisplayTasks() {
   return applyDailyCapacity(pending);
 }
 
+function buildTodayDueTasks(displayTasks = buildDisplayTasks(), today = currentReviewDate()) {
+  return displayTasks
+    .filter((task) => !wasTaskReviewedToday(task))
+    .filter((task) => task.status === "pending" && task.scheduledDate <= today)
+    .sort(taskSort);
+}
+
+function buildV52TodaySnapshotInput() {
+  if (dataProtectionStatus.blocked) throw new Error("本地数据保护检查未完成，不能生成今日快照。");
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return {
+    reviewDay: currentReviewDate(),
+    timeZone,
+    tasks: buildTodayDueTasks().map((task) => {
+      const item = findItem(task.sourceType, task.sourceId);
+      if (!item) throw new Error("今日任务的来源记录不存在。");
+      return {
+        task_id: String(task.id || ""),
+        source_id: String(task.sourceId || ""),
+        source_type: String(task.sourceType || ""),
+        title: task.sourceType === "study"
+          ? String(item.title || "")
+          : String(item.location || firstLine(item.question) || "未命名错题"),
+        scheduled_date: String(task.scheduledDate || ""),
+        source: "memory-review-app",
+        status: "pending",
+      };
+    }),
+  };
+}
+
 function applyDailyCapacity(tasks) {
   const today = currentReviewDate();
   return ReviewEngine.applyDailyCapacity(tasks, {
@@ -3620,6 +3747,7 @@ async function refreshSchedule() {
   await rebalanceReviewQueue();
   await loadState();
   publishBridgeReviewSnapshot();
+  scheduleV52TodaySync("schedule");
 }
 
 async function dedupePendingReviewTasks() {
@@ -4970,6 +5098,7 @@ function bindReviewDayRefresh() {
   if (reviewDayRefreshBound) return;
   reviewDayRefreshBound = true;
   window.addEventListener("focus", () => refreshReviewDayIfNeeded());
+  window.addEventListener("pageshow", () => refreshReviewDayIfNeeded());
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") refreshReviewDayIfNeeded();
   });

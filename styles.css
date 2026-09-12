@@ -1035,6 +1035,37 @@ button {
   grid-column: 1 / -1;
 }
 
+.v52-sync-panel {
+  grid-column: 1 / -1;
+}
+
+.sync-enable-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.sync-enable-row input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+.v52-sync-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.v52-sync-summary {
+  margin-top: 16px;
+}
+
+.v52-sync-details {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .protection-badge {
   display: inline-flex;
   align-items: center;

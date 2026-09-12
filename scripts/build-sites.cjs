@@ -12,6 +12,7 @@ const files = [
   { path: "/data-protection.js", source: "data-protection.js", type: "application/javascript; charset=utf-8" },
   { path: "/codex-review-links.js", source: "codex-review-links.js", type: "application/javascript; charset=utf-8" },
   { path: "/codex-handoff-v2-overlay.js", source: "codex-handoff-v2-overlay.js", type: "application/javascript; charset=utf-8" },
+  { path: "/v52-today-sync.js", source: "v52-today-sync.js", type: "application/javascript; charset=utf-8" },
   { path: "/app.js", source: "app.js", type: "application/javascript; charset=utf-8" },
 ];
 
