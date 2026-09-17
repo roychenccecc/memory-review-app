@@ -20,7 +20,7 @@ test("daily review capacity migrates the legacy default from six to four once", 
   assert.match(appSource, /migratedDailyReviewLimit = await migrateDailyReviewLimitDefault\(\);/);
   assert.match(indexSource, /name="dailyReviewLimit"[^>]+value="4"/);
   assert.match(indexSource, /name="dailyMistakeReviewLimit"[^>]+value="2"/);
-  assert.match(appSource, /dailyMistakeReviewLimit: clamp\(Number\(settings\[0\]\?\.dailyMistakeReviewLimit \?\? 2\), 1, 80\)/);
+  assert.match(appSource, /dailyMistakeReviewLimit: clamp\(Number\(settings\[0\]\?\.dailyMistakeReviewLimit \?\? 2\), 1, 2\)/);
 });
 
 test("JSON import validates and snapshots before the atomic replacement", () => {

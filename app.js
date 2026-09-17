@@ -210,9 +210,9 @@ async function loadState() {
     dailyReviewLimit: clamp(
       Number(settings[0]?.dailyReviewLimit ?? state.settings.dailyReviewLimit ?? DEFAULT_DAILY_REVIEW_LIMIT),
       1,
-      80
+      DEFAULT_DAILY_REVIEW_LIMIT
     ),
-    dailyMistakeReviewLimit: clamp(Number(settings[0]?.dailyMistakeReviewLimit ?? 2), 1, 80),
+    dailyMistakeReviewLimit: clamp(Number(settings[0]?.dailyMistakeReviewLimit ?? 2), 1, 2),
     questionTypes: normalizeQuestionTypes(settings[0]?.questionTypes),
   };
   state.tags = tags.sort(byCreated);
@@ -3053,9 +3053,9 @@ async function saveSettings(event) {
     dailyReviewLimit: clamp(
       Number(data.get("dailyReviewLimit")) || DEFAULT_DAILY_REVIEW_LIMIT,
       1,
-      80
+      DEFAULT_DAILY_REVIEW_LIMIT
     ),
-    dailyMistakeReviewLimit: clamp(Number(data.get("dailyMistakeReviewLimit")) || 2, 1, 80),
+    dailyMistakeReviewLimit: clamp(Number(data.get("dailyMistakeReviewLimit")) || 2, 1, 2),
     updatedAt: now(),
   };
   await put("settings", state.settings);
@@ -3784,11 +3784,11 @@ function isPostponedBeyondToday(task) {
 }
 
 function dailyReviewLimit() {
-  return clamp(Number(state.settings.dailyReviewLimit) || DEFAULT_DAILY_REVIEW_LIMIT, 1, 80);
+  return clamp(Number(state.settings.dailyReviewLimit) || DEFAULT_DAILY_REVIEW_LIMIT, 1, DEFAULT_DAILY_REVIEW_LIMIT);
 }
 
 function dailyMistakeReviewLimit() {
-  return clamp(Number(state.settings.dailyMistakeReviewLimit) || 2, 1, 80);
+  return clamp(Number(state.settings.dailyMistakeReviewLimit) || 2, 1, 2);
 }
 
 function reviewRiskRank(sourceType, sourceId) {

@@ -56,7 +56,6 @@ test("postponed first reviews remain visible in the future plan without early-re
   assert.match(appSource, /const future = visibleTasks\.filter\(\(task\) => task\.status === "pending" && task\.scheduledDate > today\)/);
   assert.match(appSource, /quickFirstReview && task\.scheduledDate <= currentReviewDate\(\)/);
 });
-
 test("V52 sync is a minimal push-only module with fixed recovery intervals", () => {
   assert.match(syncSource, /const HEARTBEAT_INTERVAL_MS = 5 \* 60 \* 1000;/);
   assert.match(syncSource, /const REFRESH_POLL_INTERVAL_MS = 30 \* 1000;/);

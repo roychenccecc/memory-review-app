@@ -92,6 +92,20 @@ test("study and mistake limits are independent and quick-first counts as study",
   assert.ok(queued.some((task) => task.earliestDate === "2026-09-16" && task.scheduledDate > "2026-09-17"));
 });
 
+test("legacy oversized settings cannot raise the four plus two daily caps", () => {
+  const queued = engine.scheduleReviewTasks([
+    ...Array.from({ length: 6 }, (_, index) => ({
+      id: `study-${index}`, sourceType: "study", earliestDate: "2026-09-17",
+    })),
+    ...Array.from({ length: 4 }, (_, index) => ({
+      id: `mistake-${index}`, sourceType: "mistake", earliestDate: "2026-09-17",
+    })),
+  ], { today: "2026-09-17", studyLimit: 80, mistakeLimit: 80 });
+  const today = queued.filter((task) => task.scheduledDate === "2026-09-17");
+  assert.equal(today.filter((task) => task.sourceType === "study").length, 4);
+  assert.equal(today.filter((task) => task.sourceType === "mistake").length, 2);
+});
+
 test("one oldest first review and one established overdue review are reserved", () => {
   const tasks = [
     { id: "newer", sourceType: "study", isFirstReview: true, studyDate: "2026-08-18", earliestDate: "2026-09-01", riskRank: 3 },

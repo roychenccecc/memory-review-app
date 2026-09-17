@@ -232,8 +232,8 @@
     const today = options.today;
     const examDate = options.examDate || "";
     const limits = {
-      study: clamp(Number(options.studyLimit) || DEFAULT_DAILY_REVIEW_LIMIT, 1, 80),
-      mistake: clamp(Number(options.mistakeLimit) || 2, 1, 80),
+      study: clamp(Number(options.studyLimit) || DEFAULT_DAILY_REVIEW_LIMIT, 1, DEFAULT_DAILY_REVIEW_LIMIT),
+      mistake: clamp(Number(options.mistakeLimit) || 2, 1, 2),
     };
     const reviewed = {
       study: Math.max(0, Number(options.reviewedStudyCount) || 0),
