@@ -959,7 +959,7 @@ button {
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 14px;
   margin-bottom: 18px;
 }
@@ -1033,6 +1033,37 @@ button {
 
 .data-protection-panel {
   grid-column: 1 / -1;
+}
+
+.v52-sync-panel {
+  grid-column: 1 / -1;
+}
+
+.sync-enable-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.sync-enable-row input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+.v52-sync-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.v52-sync-summary {
+  margin-top: 16px;
+}
+
+.v52-sync-details {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .protection-badge {
@@ -1177,6 +1208,10 @@ textarea {
   align-items: start;
 }
 
+.quick-first-review-card {
+  border-color: #a9d7cf;
+}
+
 .reviewed-card {
   opacity: 0.86;
 }
@@ -1264,6 +1299,11 @@ textarea {
   color: #9a3412;
 }
 
+.badge.quick-first-review-badge {
+  background: #d9f1ec;
+  color: #155e54;
+}
+
 .badge.neutral {
   background: #eef2f7;
   color: #475569;
@@ -1289,6 +1329,12 @@ textarea {
   background: white;
   padding: 6px 10px;
   font-weight: 700;
+}
+
+.small-button.primary {
+  border-color: var(--blue);
+  background: var(--blue);
+  color: white;
 }
 
 .danger {

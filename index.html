@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>自适应复习与错题管理器</title>
-    <link rel="stylesheet" href="styles.css?v=20260724-simple-prompt1" />
+    <link rel="stylesheet" href="styles.css?v=20260917-balanced-review-v1" />
   </head>
   <body>
     <div class="app-shell">
@@ -172,8 +172,12 @@
                   <input name="cramWindow" type="number" min="1" max="90" value="14" />
                 </label>
                 <label>
-                  每日复习上限
+                  每日学习复习上限
                   <input name="dailyReviewLimit" type="number" min="1" max="80" value="4" />
+                </label>
+                <label>
+                  每日错题复习上限
+                  <input name="dailyMistakeReviewLimit" type="number" min="1" max="80" value="2" />
                 </label>
                 <label>
                   考前重点候选上限
@@ -181,6 +185,28 @@
                 </label>
                 <button class="primary" type="submit">保存设置</button>
               </form>
+            </section>
+            <section class="panel wide v52-sync-panel" id="v52SyncPanel">
+              <div class="panel-head">
+                <h3>V52 本机同步</h3>
+                <span class="protection-badge warning" id="v52SyncBadge">未启用</span>
+              </div>
+              <form id="v52SyncForm" class="stack-form" autocomplete="off">
+                <label class="sync-enable-row">
+                  <input id="v52SyncEnabled" name="enabled" type="checkbox" autocomplete="off" />
+                  <span>启用今日待办同步</span>
+                </label>
+                <label>
+                  V52 本机地址
+                  <input id="v52SyncEndpoint" name="endpointBase" type="url" value="http://127.0.0.1:8765" spellcheck="false" />
+                </label>
+                <div class="v52-sync-actions">
+                  <button class="primary" type="submit">保存连接</button>
+                  <button class="secondary" id="v52SyncNowBtn" type="button" disabled>立即同步</button>
+                </div>
+              </form>
+              <p class="protection-summary v52-sync-summary" id="v52SyncSummary">尚未启用 V52 同步。</p>
+              <p class="muted v52-sync-details" id="v52SyncDetails">尚无成功同步记录。</p>
             </section>
             <section class="panel wide">
               <div class="panel-head">
@@ -473,6 +499,7 @@
         <input name="sourceId" type="hidden" />
         <input name="taskId" type="hidden" />
         <input name="logId" type="hidden" />
+        <input name="reviewMode" type="hidden" />
         <div class="recall-control">
           <div class="recall-head">
             <strong>这次记住了多少？</strong>
@@ -655,12 +682,13 @@
 
     <datalist id="tagOptions"></datalist>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="review-engine.js?v=20260803-review-day3"></script>
+    <script src="review-engine.js?v=20260917-balanced-review-v1"></script>
     <script src="canonical-subjects.js?v=20260723-daily-reminder1"></script>
     <script src="review-matcher.js?v=20260723-daily-reminder1"></script>
     <script src="data-protection.js?v=20260723-daily-reminder1"></script>
     <script src="codex-review-links.js?v=20260727-daily-limit4"></script>
     <script src="codex-handoff-v2-overlay.js?v=20260802-handoff-v2-overlay1"></script>
-    <script src="app.js?v=20260803-review-day3"></script>
+    <script src="v52-today-sync.js?v=20260912-manager-today-v1"></script>
+    <script src="app.js?v=20260917-balanced-review-v1"></script>
   </body>
 </html>

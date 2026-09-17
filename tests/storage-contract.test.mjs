@@ -19,6 +19,8 @@ test("daily review capacity migrates the legacy default from six to four once", 
   assert.match(appSource, /const DAILY_REVIEW_LIMIT_MIGRATION_ID = "daily-review-limit-default-v4-20260727";/);
   assert.match(appSource, /migratedDailyReviewLimit = await migrateDailyReviewLimitDefault\(\);/);
   assert.match(indexSource, /name="dailyReviewLimit"[^>]+value="4"/);
+  assert.match(indexSource, /name="dailyMistakeReviewLimit"[^>]+value="2"/);
+  assert.match(appSource, /dailyMistakeReviewLimit: clamp\(Number\(settings\[0\]\?\.dailyMistakeReviewLimit \?\? 2\), 1, 80\)/);
 });
 
 test("JSON import validates and snapshots before the atomic replacement", () => {
@@ -73,6 +75,7 @@ test("subject-root migration snapshots around one atomic reference transaction",
 test("Sites build includes the required runtime modules", () => {
   assert.match(buildSource, /canonical-subjects\.js/);
   assert.match(buildSource, /codex-handoff-v2-overlay\.js/);
+  assert.match(buildSource, /v52-today-sync\.js/);
 });
 
 test("the local guard preserves recovery and external-backup state", () => {

@@ -1,0 +1,30 @@
+{
+  "revision_input": {
+    "review_day": "2026-09-12",
+    "time_zone": "Asia/Shanghai",
+    "review_day_boundary_hour": 3,
+    "tasks": [
+      {
+        "task_id": "task-统计-001",
+        "source_id": "study-导论-001",
+        "source_type": "study",
+        "title": "心理学统计：导论与频数分布",
+        "scheduled_date": "2026-09-12",
+        "source": "memory-review-app",
+        "status": "pending"
+      },
+      {
+        "task_id": "task-实验-002",
+        "source_id": "mistake-变量-002",
+        "source_type": "mistake",
+        "title": "第二章 变量与实验设计（错题）",
+        "scheduled_date": "2026-09-12",
+        "source": "memory-review-app",
+        "status": "pending"
+      }
+    ]
+  },
+  "canonical_json": "{\"review_day\":\"2026-09-12\",\"time_zone\":\"Asia/Shanghai\",\"review_day_boundary_hour\":3,\"tasks\":[{\"task_id\":\"task-统计-001\",\"source_id\":\"study-导论-001\",\"source_type\":\"study\",\"title\":\"心理学统计：导论与频数分布\",\"scheduled_date\":\"2026-09-12\",\"source\":\"memory-review-app\",\"status\":\"pending\"},{\"task_id\":\"task-实验-002\",\"source_id\":\"mistake-变量-002\",\"source_type\":\"mistake\",\"title\":\"第二章 变量与实验设计（错题）\",\"scheduled_date\":\"2026-09-12\",\"source\":\"memory-review-app\",\"status\":\"pending\"}]}",
+  "utf8_byte_length": 524,
+  "expected_revision": "sha256:48270d1b3bb342fd7e93942e35c1dc6a3a522a874dc02c7304ea2ad7466ddfca"
+}

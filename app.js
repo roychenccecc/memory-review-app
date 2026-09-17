@@ -81,6 +81,7 @@ let state = {
     cramWindow: 14,
     dailyCramLimit: 20,
     dailyReviewLimit: DEFAULT_DAILY_REVIEW_LIMIT,
+    dailyMistakeReviewLimit: 2,
     questionTypes: DEFAULT_QUESTION_TYPES,
   },
   tags: [],
@@ -120,6 +121,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
   bindEvents();
   setDefaultDates();
+  initializeV52TodaySync();
   render();
   bindReviewDayRefresh();
   scheduleReviewDayRefresh();
@@ -210,6 +212,7 @@ async function loadState() {
       1,
       80
     ),
+    dailyMistakeReviewLimit: clamp(Number(settings[0]?.dailyMistakeReviewLimit ?? 2), 1, 80),
     questionTypes: normalizeQuestionTypes(settings[0]?.questionTypes),
   };
   state.tags = tags.sort(byCreated);
@@ -1266,6 +1269,8 @@ function bindEvents() {
   document.getElementById("createLocalSnapshotBtn").addEventListener("click", createManualProtectionSnapshot);
   document.getElementById("restoreLocalSnapshotBtn").addEventListener("click", restoreLatestLocalSnapshot);
   document.getElementById("downloadProtectionBackupBtn").addEventListener("click", exportJson);
+  document.getElementById("v52SyncForm").addEventListener("submit", saveV52TodaySyncSettings);
+  document.getElementById("v52SyncNowBtn").addEventListener("click", syncV52TodayNow);
   document.getElementById("protectionNoticePrimaryBtn").addEventListener("click", () => {
     openBackupImportSettings();
   });
@@ -1324,6 +1329,8 @@ function setDefaultDates() {
   document.querySelector("#settingsForm [name='dailyCramLimit']").value = state.settings.dailyCramLimit || 20;
   document.querySelector("#settingsForm [name='dailyReviewLimit']").value =
     state.settings.dailyReviewLimit || DEFAULT_DAILY_REVIEW_LIMIT;
+  document.querySelector("#settingsForm [name='dailyMistakeReviewLimit']").value =
+    state.settings.dailyMistakeReviewLimit || 2;
 }
 
 function switchView(view) {
@@ -1363,6 +1370,99 @@ function render() {
   renderHistory();
   setDefaultDates();
   renderDataProtection();
+  scheduleV52TodaySync("render");
+}
+
+function initializeV52TodaySync() {
+  const sync = globalThis.V52TodaySync;
+  if (!sync) {
+    renderV52TodaySyncStatus({
+      state: "ERROR",
+      message: "V52 同步模块没有载入。",
+      lastError: "请重新载入页面。",
+    });
+    return;
+  }
+  sync.initialize({
+    getSnapshotInput: buildV52TodaySnapshotInput,
+    onStatusChange: renderV52TodaySyncStatus,
+  });
+  window.addEventListener("pageshow", renderV52TodaySyncSettings);
+  renderV52TodaySyncSettings();
+}
+
+function renderV52TodaySyncSettings() {
+  const sync = globalThis.V52TodaySync;
+  if (!sync) return;
+  const config = sync.getConfig();
+  document.getElementById("v52SyncEnabled").checked = config.enabled;
+  document.getElementById("v52SyncEndpoint").value = config.endpointBase;
+  renderV52TodaySyncStatus(sync.getStatus());
+}
+
+function renderV52TodaySyncStatus(nextStatus = {}) {
+  const badge = document.getElementById("v52SyncBadge");
+  const summary = document.getElementById("v52SyncSummary");
+  const details = document.getElementById("v52SyncDetails");
+  const button = document.getElementById("v52SyncNowBtn");
+  if (!badge || !summary || !details || !button) return;
+  const labels = {
+    DISABLED: "未启用",
+    WAITING: "等待同步",
+    SYNCING: "同步中",
+    READY: "已同步",
+    ERROR: "连接异常",
+    LOCAL_PREVIEW: "本地预览",
+  };
+  const badgeClass = nextStatus.state === "READY"
+    ? "safe"
+    : nextStatus.state === "ERROR"
+      ? "danger"
+      : "warning";
+  badge.className = `protection-badge ${badgeClass}`;
+  badge.textContent = labels[nextStatus.state] || "未连接";
+  summary.textContent = nextStatus.message || "尚未建立连接。";
+  const parts = [];
+  if (nextStatus.lastSuccessAt) {
+    parts.push(`上次成功：${new Date(nextStatus.lastSuccessAt).toLocaleString("zh-CN", { hour12: false })}`);
+  }
+  if (Number.isInteger(nextStatus.lastTaskCount)) parts.push(`今日待办：${nextStatus.lastTaskCount} 项`);
+  if (nextStatus.pendingRefreshRequestId) parts.push("V52 正在等待本次刷新响应");
+  if (nextStatus.lastError) parts.push(`原因：${nextStatus.lastError}`);
+  details.textContent = parts.join(" · ") || "尚无成功同步记录。";
+  button.disabled = !globalThis.V52TodaySync?.getConfig().enabled || nextStatus.state === "SYNCING";
+}
+
+function saveV52TodaySyncSettings(event) {
+  event.preventDefault();
+  const sync = globalThis.V52TodaySync;
+  if (!sync) return;
+  const data = new FormData(event.currentTarget);
+  try {
+    const config = sync.saveConfig({
+      enabled: data.get("enabled") === "on",
+      endpointBase: data.get("endpointBase"),
+    });
+    renderV52TodaySyncSettings();
+    toast(config.enabled ? "V52 连接已保存，正在发送今日快照。" : "V52 今日待办同步已关闭。");
+  } catch (error) {
+    toast(error?.message || "V52 连接设置无效。");
+  }
+}
+
+async function syncV52TodayNow() {
+  const sync = globalThis.V52TodaySync;
+  if (!sync?.getConfig().enabled) {
+    toast("请先启用并保存 V52 同步设置。");
+    return;
+  }
+  await sync.pushNow("manual", { force: true });
+  const nextStatus = sync.getStatus();
+  toast(nextStatus.state === "READY" ? "V52 今日快照已同步。" : "同步未成功，原有快照不会被空列表覆盖。");
+}
+
+function scheduleV52TodaySync(reason) {
+  globalThis.V52TodaySync?.schedulePush(reason);
 }
 
 function renderDataProtection() {
@@ -1430,25 +1530,26 @@ function renderDashboard() {
   const tasks = buildDisplayTasks();
   const visibleTasks = tasks.filter((task) => !wasTaskReviewedToday(task));
   const today = currentReviewDate();
-  const due = visibleTasks.filter((task) => task.scheduledDate <= today && task.status === "pending");
-  const overdue = due.filter((task) => task.scheduledDate < today);
-  const cram = visibleTasks.filter((task) => task.isCram && task.status === "pending" && task.scheduledDate <= today);
-  const future = visibleTasks
-    .filter((task) => task.status === "pending" && task.scheduledDate > today)
+  const due = buildTodayDueTasks(tasks, today);
+  const overdue = due.filter((task) => task.earliestDate < today);
+  const cram = due.filter((task) => task.isCram);
+  const future = visibleTasks.filter((task) => task.status === "pending" && task.scheduledDate > today)
     .sort(taskSort)
     .slice(0, 40);
   const reviewedToday = buildReviewedTodayTasks();
   const weak = getAllItems().filter((item) => currentScore(item) < 60);
 
   document.getElementById("statsGrid").innerHTML = [
-    stat("待复习", due.length),
-    stat("今日已复习", reviewedToday.length),
+    stat("学习待复习", due.filter((task) => task.sourceType === "study").length),
+    stat("今日已学习复习", reviewedToday.filter((log) => log.sourceType === "study").length),
+    stat("错题待复习", due.filter((task) => task.sourceType === "mistake").length),
     stat("考前重点", cram.length),
     stat("薄弱内容", weak.length),
   ].join("");
 
   const filter = document.getElementById("reviewFilter").value;
   let visible = due;
+  if (filter === "due") visible = due.filter((task) => task.earliestDate === today);
   if (filter === "overdue") visible = overdue;
   if (filter === "cram") visible = cram;
   if (filter === "all") visible = due;
@@ -1460,7 +1561,7 @@ function renderDashboard() {
         <h4>待复习</h4>
         <span>${visible.length} 项</span>
       </div>
-      ${visible.length ? visible.map(renderTaskCard).join("") : empty("现在没有符合条件的待复习任务。")}
+      ${visible.length ? visible.map((task) => renderTaskCard(task, { quickFirstReview: task.isFirstReview })).join("") : empty("现在没有符合条件的待复习任务。")}
     </div>
     <div class="task-section reviewed" data-review-section="reviewed" data-review-date="${escapeAttr(today)}">
       <div class="section-title">
@@ -1474,7 +1575,7 @@ function renderDashboard() {
         <h4>未来复习计划</h4>
         <span>${future.length} 项</span>
       </div>
-      ${future.length ? future.map(renderTaskCard).join("") : empty("还没有未来复习计划。")}
+      ${future.length ? future.map((task) => renderTaskCard(task, { quickFirstReview: task.isFirstReview })).join("") : empty("还没有未来复习计划。")}
     </div>
   `;
 
@@ -1512,6 +1613,7 @@ function renderReviewedTaskCard(task) {
         <div class="meta">
           <span>${TYPE_LABEL[task.sourceType]}</span>
           <span>已复习: ${formatDate(task.date)}</span>
+          ${task.reviewMode === "quick-first" ? '<span class="badge quick-first-review-badge">首次快看</span>' : ""}
           <span>已复习 ${reviewCount(task.sourceType, task.sourceId)} 次</span>
           <span>记住 ${Number(task.recallPercent ?? score)}%</span>
           <span>记忆分: ${score}</span>
@@ -1528,7 +1630,7 @@ function renderReviewedTaskCard(task) {
   `;
 }
 
-function renderTaskCard(task) {
+function renderTaskCard(task, { quickFirstReview = false } = {}) {
   const item = findItem(task.sourceType, task.sourceId);
   if (!item) return "";
   const score = currentScore(item);
@@ -1547,13 +1649,14 @@ function renderTaskCard(task) {
     detail: detail || "",
   };
   const codexReviewUrl = globalThis.CodexReviewLinks?.buildCodexReviewUrl(reviewPayload) || "";
-  const dateLabel = task.scheduledDate < currentReviewDate() ? "逾期" : "计划";
+  const isOverdue = task.earliestDate < currentReviewDate();
   const postponed = isPostponedBeyondToday(task);
   return `
     <article
-      class="task-card"
+      class="task-card${quickFirstReview ? " quick-first-review-card" : ""}"
       data-review-task="true"
       data-review-task-status="pending"
+      data-review-mode="${quickFirstReview ? "quick-first" : "formal"}"
       data-task-id="${escapeAttr(reviewPayload.taskId)}"
       data-source-type="${escapeAttr(task.sourceType)}"
       data-source-id="${escapeAttr(task.sourceId)}"
@@ -1569,15 +1672,18 @@ function renderTaskCard(task) {
         <h4 class="card-title">${escapeHtml(title)}</h4>
         <div class="meta">
           <span>${TYPE_LABEL[task.sourceType]}</span>
-          <span>${dateLabel}: ${formatDate(task.scheduledDate)}</span>
+          <span>${isOverdue ? "原到期" : "安排"}: ${formatDate(isOverdue ? task.earliestDate : task.scheduledDate)}</span>
+          ${isOverdue && task.scheduledDate > currentReviewDate() ? `<span>排至: ${formatDate(task.scheduledDate)}</span>` : ""}
           <span>已复习 ${reviewCount(task.sourceType, task.sourceId)} 次</span>
           <span>记忆分: ${score}</span>
+          ${quickFirstReview ? '<span class="badge quick-first-review-badge">首次快看</span>' : ""}
           ${task.isCram ? '<span class="badge cram">考前重点</span>' : ""}
         </div>
         ${renderTagRow(tags)}
         ${detail ? `<p class="body-text">${escapeHtml(truncate(detail, 160))}</p>` : ""}
       </div>
       <div class="card-actions">
+        ${quickFirstReview && task.scheduledDate <= currentReviewDate() ? `<button class="small-button primary" onclick="openReview('study','${task.sourceId}','${task.id || ""}','quick-first')">快速记录</button>` : ""}
         <button class="small-button" onclick="openEditItem('${task.sourceType}','${task.sourceId}')">编辑内容</button>
         <button class="small-button" onclick="${task.sourceType === "mistake" ? `openMistakeRecord('${task.sourceId}','${task.id || ""}')` : `openStudyRecord('${task.sourceId}','${task.id || ""}')`}">${task.sourceType === "mistake" ? "错题记录" : "学习记录"}</button>
         ${postponed
@@ -2949,6 +3055,7 @@ async function saveSettings(event) {
       1,
       80
     ),
+    dailyMistakeReviewLimit: clamp(Number(data.get("dailyMistakeReviewLimit")) || 2, 1, 80),
     updatedAt: now(),
   };
   await put("settings", state.settings);
@@ -3071,6 +3178,7 @@ async function persistReviewForm(form) {
   const sourceId = data.get("sourceId");
   const taskId = data.get("taskId");
   const logId = data.get("logId");
+  const reviewMode = data.get("reviewMode") === "quick-first" ? "quick-first" : "";
   const externalDraftId = String(data.get("externalDraftId") || "").trim();
   const externalSource = String(data.get("externalSource") || "").trim();
   const sectionScores = collectStudySectionScores(form, sourceType);
@@ -3080,6 +3188,11 @@ async function persistReviewForm(form) {
   const result = resultFromPercent(recallPercent);
   const item = findItem(sourceType, sourceId);
   if (!item) return null;
+  if (reviewMode && (sourceType !== "study" || logId
+    || !buildFirstReviewDueTasks().some((task) => task.sourceId === sourceId && task.id === taskId))) {
+    toast("这条记录已不需要首次快看，请刷新页面后查看复习计划。");
+    return null;
+  }
   const today = currentReviewDate();
   const logDate = data.get("date") || today;
   if (logDate > today) {
@@ -3168,6 +3281,7 @@ async function persistReviewForm(form) {
     id: newLogId,
     sourceType,
     sourceId,
+    ...(reviewMode ? { reviewMode } : {}),
     taskId,
     result,
     recallPercent,
@@ -3338,7 +3452,11 @@ async function updateReviewLog({ logId, sourceType, sourceId, taskId, recallPerc
   for (const task of state.tasks.filter((row) => row.status === "pending" && row.sourceType === sourceType && row.sourceId === sourceId)) {
     task.priority = priorityScore(item, Boolean(task.isCram));
     if (intervalState && log.date === currentReviewDate()) {
-      task.earliestDate = capAtExam(addDays(log.date, intervalState.interval)) || task.earliestDate || task.scheduledDate;
+      const delay = recommendedReviewDelay(sourceType, sourceId, intervalState.interval);
+      task.earliestDate = maxDate(
+        capAtExam(addDays(log.date, delay)) || task.earliestDate || task.scheduledDate,
+        activePostponedUntil(task)
+      );
       task.scheduledDate = task.earliestDate || task.scheduledDate;
       task.intervalDays = intervalState.interval;
     }
@@ -3424,7 +3542,8 @@ async function recomputeItemFromReviewLogs(sourceType, sourceId, options = {}) {
   item.updatedAt = now();
   await put(sourceType === "study" ? "study" : "mistakes", item);
   const nextFromDate = item.lastReviewedAt || item.date || item.createdAt?.slice(0, 10) || currentReviewDate();
-  const nextEarliestDate = capAtExam(addDays(nextFromDate, item.currentInterval || 1));
+  const nextEarliestDate = capAtExam(addDays(nextFromDate,
+    logs.length ? recommendedReviewDelay(sourceType, sourceId, item.currentInterval || 1) : 1));
   for (const task of state.tasks.filter((row) => row.status === "pending" && row.sourceType === sourceType && row.sourceId === sourceId)) {
     if (nextEarliestDate && !task.isCram) {
       task.earliestDate = maxDate(nextEarliestDate, activePostponedUntil(task));
@@ -3495,7 +3614,8 @@ function refreshOpenRecordHistory(sourceType, sourceId) {
 async function createNextTask(sourceType, item, fromDate, result = "") {
   if (state.settings.examDate && fromDate >= state.settings.examDate) return;
   const interval = Math.max(1, Number(item.currentInterval || 1));
-  const earliestDate = capAtExam(addDays(fromDate, interval));
+  const latest = { date: fromDate, score: Number(item.lastRecallPercent) };
+  const earliestDate = capAtExam(addDays(fromDate, recommendedReviewDelay(sourceType, item.id, interval, latest)));
   if (!earliestDate) return;
   const priority = priorityScore(item, false);
   const existingTasks = state.tasks
@@ -3526,18 +3646,24 @@ async function createNextTask(sourceType, item, fromDate, result = "") {
   }
 }
 
-function buildDisplayTasks() {
-  const pending = dedupeTaskListBySource(state.tasks
+function buildDisplayTasks({ includeCram = true } = {}) {
+  const { firstReview, formal } = ReviewEngine.partitionFirstReviewTasks(state.tasks, state.study, state.logs);
+  const firstReviewSourceIds = new Set(firstReview.map((task) => task.sourceId));
+  const pending = dedupeTaskListBySource([...firstReview, ...formal]
     .filter((task) => task.status === "pending" && findItem(task.sourceType, task.sourceId))
     .map((task) => {
       const item = findItem(task.sourceType, task.sourceId);
       return {
         ...task,
-        earliestDate: task.earliestDate || task.scheduledDate,
+        isFirstReview: task.sourceType === "study" && firstReviewSourceIds.has(task.sourceId),
+        studyDate: item.date || item.createdAt?.slice(0, 10) || "",
+        earliestDate: maxDate(task.earliestDate || task.scheduledDate, activePostponedUntil(task)),
         priority: priorityScore(item, Boolean(task.isCram)),
+        riskRank: reviewRiskRank(task.sourceType, task.sourceId),
       };
     }));
-  for (const cramTask of buildCramTasks()) {
+  for (const cramTask of includeCram ? buildCramTasks() : []) {
+    if (cramTask.sourceType === "study" && firstReviewSourceIds.has(cramTask.sourceId)) continue;
     const existing = pending.find((task) => task.sourceType === cramTask.sourceType && task.sourceId === cramTask.sourceId);
     if (existing) {
       const postponed = isPostponedBeyondToday(existing);
@@ -3547,26 +3673,76 @@ function buildDisplayTasks() {
         existing.earliestDate = minDate(existing.earliestDate || existing.scheduledDate, cramTask.earliestDate || cramTask.scheduledDate);
       }
     } else {
-      pending.push(cramTask);
+      pending.push({ ...cramTask, riskRank: reviewRiskRank(cramTask.sourceType, cramTask.sourceId) });
     }
   }
-  return applyDailyCapacity(pending);
+  const today = currentReviewDate();
+  return scheduleReviewTasks(pending)
+    .filter((task) => !task.id.startsWith("cram-") || task.scheduledDate === today);
 }
 
-function applyDailyCapacity(tasks) {
+function buildFirstReviewTasks(displayTasks = buildDisplayTasks()) {
+  return displayTasks.filter((task) => task.isFirstReview);
+}
+
+function buildFirstReviewDueTasks(today = currentReviewDate(), displayTasks = buildDisplayTasks()) {
+  return buildFirstReviewTasks(displayTasks)
+    .filter((task) => task.scheduledDate <= today && !wasTaskReviewedToday(task));
+}
+
+function buildFormalTodayDueTasks(displayTasks = buildDisplayTasks(), today = currentReviewDate()) {
+  return displayTasks
+    .filter((task) => !wasTaskReviewedToday(task))
+    .filter((task) => !task.isFirstReview && task.status === "pending" && task.scheduledDate <= today)
+    .sort(taskSort);
+}
+
+function buildTodayDueTasks(displayTasks = buildDisplayTasks(), today = currentReviewDate()) {
+  return displayTasks
+    .filter((task) => task.status === "pending" && task.scheduledDate <= today && !wasTaskReviewedToday(task))
+    .sort(taskSort);
+}
+
+function buildV52TodaySnapshotInput() {
+  if (dataProtectionStatus.blocked) throw new Error("本地数据保护检查未完成，不能生成今日快照。");
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return {
+    reviewDay: currentReviewDate(),
+    timeZone,
+    tasks: buildTodayDueTasks().map((task) => {
+      const item = findItem(task.sourceType, task.sourceId);
+      if (!item) throw new Error("今日任务的来源记录不存在。");
+      return {
+        task_id: String(task.id || ""),
+        source_id: String(task.sourceId || ""),
+        source_type: String(task.sourceType || ""),
+        title: task.sourceType === "study"
+          ? String(item.title || "")
+          : String(item.location || firstLine(item.question) || "未命名错题"),
+        scheduled_date: String(task.scheduledDate || ""),
+        source: "memory-review-app",
+        status: "pending",
+      };
+    }),
+  };
+}
+
+function scheduleReviewTasks(tasks) {
   const today = currentReviewDate();
-  return ReviewEngine.applyDailyCapacity(tasks, {
+  return ReviewEngine.scheduleReviewTasks(tasks, {
     today,
-    limit: dailyReviewLimit(),
-    reviewedCount: reviewedTaskCountOn(today),
+    studyLimit: dailyReviewLimit(),
+    mistakeLimit: dailyMistakeReviewLimit(),
+    reviewedStudyCount: reviewedTaskCountOn(today, "study"),
+    reviewedMistakeCount: reviewedTaskCountOn(today, "mistake"),
     examDate: state.settings.examDate,
   });
 }
 
-function reviewedTaskCountOn(date) {
+function reviewedTaskCountOn(date, sourceType) {
   const reviewedSources = new Set(
     state.logs
-      .filter((log) => log.date === date && findItem(log.sourceType, log.sourceId))
+      .filter((log) => log.date === date && log.sourceType === sourceType && findItem(log.sourceType, log.sourceId))
       .map((log) => `${log.sourceType}:${log.sourceId}`)
   );
   return reviewedSources.size;
@@ -3611,6 +3787,22 @@ function dailyReviewLimit() {
   return clamp(Number(state.settings.dailyReviewLimit) || DEFAULT_DAILY_REVIEW_LIMIT, 1, 80);
 }
 
+function dailyMistakeReviewLimit() {
+  return clamp(Number(state.settings.dailyMistakeReviewLimit) || 2, 1, 80);
+}
+
+function reviewRiskRank(sourceType, sourceId) {
+  const item = findItem(sourceType, sourceId);
+  const latest = latestLogFor(sourceType, sourceId);
+  if (!latest) return item && sourceType === "study" && !item.lastReviewedAt ? 3 : 4;
+  const score = reviewScoreForLog(latest, sourceType);
+  if (!Number.isFinite(score)) return 4;
+  if (score < 50) return 0;
+  if (score < 70) return 1;
+  if (score < 75 || (score < 80 && recommendedReviewDelay(sourceType, sourceId, 30) <= 7)) return 2;
+  return 4;
+}
+
 async function refreshSchedule() {
   await loadState();
   await migratePendingTaskEarliestDates();
@@ -3620,6 +3812,7 @@ async function refreshSchedule() {
   await rebalanceReviewQueue();
   await loadState();
   publishBridgeReviewSnapshot();
+  scheduleV52TodaySync("schedule");
 }
 
 async function dedupePendingReviewTasks() {
@@ -3650,7 +3843,8 @@ async function migratePendingTaskEarliestDates() {
     const item = findItem(task.sourceType, task.sourceId);
     const nextIntervalState = migratedIntervalStateForTask(task, item);
     if (!nextIntervalState) continue;
-    const earliestDate = capAtExam(addDays(nextIntervalState.fromDate, nextIntervalState.interval));
+    const earliestDate = capAtExam(addDays(nextIntervalState.fromDate,
+      recommendedReviewDelay(task.sourceType, task.sourceId, nextIntervalState.interval)));
     if (!earliestDate) continue;
     if (item.currentIntervalIndex !== nextIntervalState.index || item.currentInterval !== nextIntervalState.interval) {
       await put(task.sourceType === "study" ? "study" : "mistakes", {
@@ -3690,6 +3884,16 @@ function migratedIntervalStateForTask(task, item) {
   };
 }
 
+function recommendedReviewDelay(sourceType, sourceId, baseInterval, latestOverride = null) {
+  const rows = state.logs
+    .filter((log) => log.sourceType === sourceType && log.sourceId === sourceId)
+    .filter((log) => !latestOverride || log.date !== latestOverride.date)
+    .map((log) => ({ date: log.date || log.createdAt?.slice(0, 10), score: reviewScoreForLog(log, sourceType) }));
+  if (latestOverride) rows.push(latestOverride);
+  rows.sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+  return ReviewEngine.recommendedIntervalDays(baseInterval, rows);
+}
+
 function legacyIntervalBaseIndex(sourceType, sourceId, item, latest) {
   if (Number.isFinite(Number(latest?.beforeIntervalIndex))) {
     return clamp(Number(latest.beforeIntervalIndex), 0, BASE_INTERVALS.length - 1);
@@ -3701,16 +3905,7 @@ function legacyIntervalBaseIndex(sourceType, sourceId, item, latest) {
 }
 
 async function rebalanceReviewQueue() {
-  const queued = applyDailyCapacity(state.tasks
-    .filter((task) => task.status === "pending" && !task.isCram && findItem(task.sourceType, task.sourceId))
-    .map((task) => {
-      const item = findItem(task.sourceType, task.sourceId);
-      return {
-        ...task,
-        earliestDate: task.earliestDate || task.scheduledDate,
-        priority: priorityScore(item, false),
-      };
-    }));
+  const queued = buildDisplayTasks({ includeCram: false });
   for (const task of queued) {
     const original = state.tasks.find((row) => row.id === task.id);
     if (!original) continue;
@@ -3758,7 +3953,12 @@ function buildCramTasks() {
       priority: priorityScore(item, true),
       isCram: true,
     }))
-    .sort((a, b) => b.priority - a.priority)
+    .sort((a, b) => {
+      const risk = reviewRiskRank(a.sourceType, a.sourceId) - reviewRiskRank(b.sourceType, b.sourceId);
+      if (risk) return risk;
+      const score = currentScore(findItem(a.sourceType, a.sourceId)) - currentScore(findItem(b.sourceType, b.sourceId));
+      return score || (b.priority - a.priority);
+    })
     .slice(0, Number(state.settings.dailyCramLimit) || 20);
 }
 
@@ -3775,13 +3975,10 @@ function wasTaskReviewedToday(task) {
 
 function shouldCram(item) {
   const score = currentScore(item);
-  const importance = itemImportance(item);
   const lastReviewed = item.lastReviewedAt || item.date || item.createdAt.slice(0, 10);
   const daysSinceReview = diffDays(lastReviewed, currentReviewDate());
-  if (score < 40) return true;
-  if (score < 60 && ["veryHigh", "high", "medium"].includes(importance)) return true;
-  if (score < 80 && ["veryHigh", "high"].includes(importance)) return true;
-  return score >= 80 && daysSinceReview > 30;
+  if (daysSinceReview < 7) return false;
+  return score < 70 || daysSinceReview > 30;
 }
 
 function currentScore(item) {
@@ -4192,17 +4389,18 @@ function configureReviewModalForType(sourceType) {
   }
 }
 
-function openReview(sourceType, sourceId, taskId) {
+function openReview(sourceType, sourceId, taskId, reviewMode = "") {
   const item = findItem(sourceType, sourceId);
   if (!item) return;
   const title = sourceType === "study" ? item.title : item.location || firstLine(item.question) || "未命名错题";
-  document.getElementById("reviewModalTitle").textContent = `${sourceType === "mistake" ? "记录错因" : "记录复习结果"}：${title}`;
+  document.getElementById("reviewModalTitle").textContent = `${reviewMode === "quick-first" ? "记录首次快看" : sourceType === "mistake" ? "记录错因" : "记录复习结果"}：${title}`;
   configureReviewModalForType(sourceType);
   const form = document.getElementById("reviewForm");
   form.sourceType.value = sourceType;
   form.sourceId.value = sourceId;
   form.taskId.value = taskId;
   form.logId.value = "";
+  form.reviewMode.value = reviewMode;
   formField(form, "notes").value = "";
   setRecallPercent(80);
   document.getElementById("reviewModal").showModal();
@@ -4303,13 +4501,14 @@ function setMistakeRecordRecallPercent(value) {
 async function postponeTask(taskId, sourceType, sourceId) {
   const item = findItem(sourceType, sourceId);
   if (!item) return;
-  const displayTask = buildDisplayTasks().find((row) => row.id === taskId || (row.sourceType === sourceType && row.sourceId === sourceId));
+  const quickTask = buildFirstReviewTasks().find((row) => row.id === taskId);
+  const displayTask = quickTask || buildDisplayTasks().find((row) => row.id === taskId || (row.sourceType === sourceType && row.sourceId === sourceId));
   const existingTasks = state.tasks
     .filter((row) => row.status === "pending" && !row.isCram && row.sourceType === sourceType && row.sourceId === sourceId)
     .sort((a, b) => pendingTaskKeepSort(a, b));
   const target = existingTasks.find((row) => row.id === taskId) || existingTasks[0];
   const previousEarliestDate = target?.earliestDate || displayTask?.earliestDate || displayTask?.scheduledDate || currentReviewDate();
-  const previousScheduledDate = target?.scheduledDate || displayTask?.scheduledDate || previousEarliestDate;
+  const previousScheduledDate = quickTask?.scheduledDate || target?.scheduledDate || displayTask?.scheduledDate || previousEarliestDate;
   const postponedUntil = postponedTaskDate(currentReviewDate(), previousScheduledDate);
   const taskValue = {
     ...(target || {}),
@@ -4970,6 +5169,7 @@ function bindReviewDayRefresh() {
   if (reviewDayRefreshBound) return;
   reviewDayRefreshBound = true;
   window.addEventListener("focus", () => refreshReviewDayIfNeeded());
+  window.addEventListener("pageshow", () => refreshReviewDayIfNeeded());
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") refreshReviewDayIfNeeded();
   });

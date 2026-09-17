@@ -66,6 +66,26 @@
     return { index: nextIndex, interval: BASE_INTERVALS[nextIndex] || 1 };
   }
 
+  function recommendedIntervalDays(baseInterval, recentReviews = []) {
+    const distinctDays = [];
+    for (const review of recentReviews) {
+      if (!review?.date || review.score == null || review.score === ""
+        || !Number.isFinite(Number(review.score))) continue;
+      if (!distinctDays.some((row) => row.date === review.date)) {
+        distinctDays.push({ date: review.date, score: Number(review.score) });
+      }
+      if (distinctDays.length === 2) break;
+    }
+    const latest = distinctDays[0]?.score;
+    let target = Number(baseInterval) || 1;
+    if (latest < 50) target = Math.min(target, 1);
+    else if (latest < 70) target = Math.min(target, 3);
+    else if (latest < 75 || (latest < 80 && distinctDays[1]?.score < 80)) {
+      target = Math.min(target, 7);
+    }
+    return Math.max(1, target);
+  }
+
   function resultFromPercent(percent) {
     if (percent >= 85) return "remembered";
     if (percent >= 40) return "unclear";
@@ -161,6 +181,26 @@
     return (b.priority || 0) - (a.priority || 0);
   }
 
+  function partitionFirstReviewTasks(tasks = [], studies = [], logs = []) {
+    const studyById = new Map(studies.map((study) => [study.id, study]));
+    const reviewedStudyIds = new Set(logs
+      .filter((log) => log.sourceType === "study")
+      .map((log) => log.sourceId));
+    const firstReview = [];
+    const formal = [];
+    for (const task of tasks) {
+      const study = task.sourceType === "study" ? studyById.get(task.sourceId) : null;
+      if (task.status === "pending" && !task.isCram && study
+        && (study.studyKind || "new") === "new"
+        && !study.lastReviewedAt && !reviewedStudyIds.has(study.id)) {
+        firstReview.push(task);
+      } else {
+        formal.push(task);
+      }
+    }
+    return { firstReview, formal };
+  }
+
   function applyDailyCapacity(tasks = [], options = {}) {
     const today = options.today;
     const limit = clamp(Number(options.limit) || DEFAULT_DAILY_REVIEW_LIMIT, 1, 80);
@@ -186,6 +226,63 @@
         return { ...task, scheduledDate };
       })
       .filter((task) => task.scheduledDate);
+  }
+
+  function scheduleReviewTasks(tasks = [], options = {}) {
+    const today = options.today;
+    const examDate = options.examDate || "";
+    const limits = {
+      study: clamp(Number(options.studyLimit) || DEFAULT_DAILY_REVIEW_LIMIT, 1, 80),
+      mistake: clamp(Number(options.mistakeLimit) || 2, 1, 80),
+    };
+    const reviewed = {
+      study: Math.max(0, Number(options.reviewedStudyCount) || 0),
+      mistake: Math.max(0, Number(options.reviewedMistakeCount) || 0),
+    };
+    const pending = tasks
+      .map((task) => ({ ...task, earliestDate: task.earliestDate || task.scheduledDate || today }))
+      .filter((task) => (task.sourceType === "study" || task.sourceType === "mistake")
+        && (!examDate || task.earliestDate <= examDate));
+    const planned = [];
+    let day = today;
+
+    function riskSort(a, b) {
+      if ((a.riskRank ?? 4) !== (b.riskRank ?? 4)) return (a.riskRank ?? 4) - (b.riskRank ?? 4);
+      if (a.earliestDate !== b.earliestDate) return a.earliestDate.localeCompare(b.earliestDate);
+      if ((a.priority || 0) !== (b.priority || 0)) return (b.priority || 0) - (a.priority || 0);
+      return String(a.id).localeCompare(String(b.id));
+    }
+
+    while (pending.length && (!examDate || day <= examDate)) {
+      const eligible = pending.filter((task) => task.earliestDate <= day);
+      if (!eligible.length) {
+        day = pending.reduce((next, task) => minDate(next, task.earliestDate), "");
+        continue;
+      }
+      const slots = {
+        study: Math.max(0, limits.study - (day === today ? reviewed.study : 0)),
+        mistake: Math.max(0, limits.mistake - (day === today ? reviewed.mistake : 0)),
+      };
+      const chosen = new Set();
+      const choose = (task) => {
+        if (!task || !slots[task.sourceType]) return;
+        slots[task.sourceType] -= 1;
+        chosen.add(task);
+        planned.push({ ...task, scheduledDate: day });
+      };
+      const studies = eligible.filter((task) => task.sourceType === "study");
+      choose(studies.filter((task) => task.isFirstReview)
+        .sort((a, b) => String(a.studyDate || "").localeCompare(String(b.studyDate || "")) || riskSort(a, b))[0]);
+      choose(studies.filter((task) => !task.isFirstReview && task.earliestDate < day)
+        .sort(riskSort)[0]);
+      for (const task of studies.filter((row) => !chosen.has(row)).sort(riskSort)) choose(task);
+      for (const task of eligible.filter((row) => row.sourceType === "mistake").sort(riskSort)) choose(task);
+      for (let index = pending.length - 1; index >= 0; index -= 1) {
+        if (chosen.has(pending[index])) pending.splice(index, 1);
+      }
+      day = addDays(day, 1);
+    }
+    return planned;
   }
 
   function leafKnowledgeSummary(studyScores = [], mistakeScores = []) {
@@ -250,9 +347,12 @@
     minDate,
     millisecondsUntilReviewDayBoundary,
     parentKnowledgeSummary,
+    partitionFirstReviewTasks,
     postponedTaskDate,
     resultFromPercent,
+    recommendedIntervalDays,
     reviewBusinessDate,
+    scheduleReviewTasks,
     toDateInput,
     weightedLatestMistakeScore,
     weightedSectionScore,

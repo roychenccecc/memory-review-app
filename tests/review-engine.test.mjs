@@ -46,6 +46,97 @@ test("today reviewed plus pending reviews never exceeds four by default", () => 
   assert.equal(queued[0].id, "task-0");
 });
 
+test("unreviewed new study is identifiable for a reserved study slot", () => {
+  const tasks = [
+    { id: "first", sourceType: "study", sourceId: "new", status: "pending", earliestDate: "2026-09-16" },
+    { id: "old", sourceType: "study", sourceId: "reviewed", status: "pending", earliestDate: "2026-09-16" },
+    { id: "kind-review", sourceType: "study", sourceId: "review-kind", status: "pending", earliestDate: "2026-09-17" },
+    { id: "mistake", sourceType: "mistake", sourceId: "mistake", status: "pending", earliestDate: "2026-09-17" },
+  ];
+  const studies = [
+    { id: "new", studyKind: "new" },
+    { id: "reviewed", studyKind: "new" },
+    { id: "review-kind", studyKind: "review" },
+  ];
+  const logs = [{ sourceType: "study", sourceId: "reviewed", date: "2026-09-16" }];
+  const { firstReview, formal } = engine.partitionFirstReviewTasks(tasks, studies, logs);
+  assert.deepEqual(firstReview.map((task) => task.id), ["first"]);
+  assert.deepEqual(formal.map((task) => task.id), ["old", "kind-review", "mistake"]);
+  const queued = engine.scheduleReviewTasks([
+    { ...firstReview[0], isFirstReview: true, studyDate: "2026-08-01" },
+    ...formal,
+  ], { today: "2026-09-17", studyLimit: 2, mistakeLimit: 1 });
+  assert.deepEqual(queued.filter((task) => task.scheduledDate === "2026-09-17")
+    .map((task) => task.id), ["first", "old", "mistake"]);
+});
+
+test("study and mistake limits are independent and quick-first counts as study", () => {
+  const tasks = [
+    ...Array.from({ length: 5 }, (_, n) => ({
+      id: `study-${n}`, sourceType: "study", earliestDate: "2026-09-16",
+      isFirstReview: n === 0, studyDate: "2026-08-01", riskRank: n === 0 ? 3 : 4,
+    })),
+    ...Array.from({ length: 4 }, (_, n) => ({
+      id: `mistake-${n}`, sourceType: "mistake", earliestDate: "2026-09-16", riskRank: 4,
+    })),
+  ];
+  const queued = engine.scheduleReviewTasks(tasks, {
+    today: "2026-09-17", studyLimit: 4, mistakeLimit: 2,
+    reviewedStudyCount: 1, reviewedMistakeCount: 1,
+  });
+  const today = queued.filter((task) => task.scheduledDate === "2026-09-17");
+  assert.equal(today.filter((task) => task.sourceType === "study").length, 3);
+  assert.equal(today.filter((task) => task.sourceType === "mistake").length, 1);
+  assert.ok(today.some((task) => task.id === "study-0"));
+  assert.equal(queued.length, tasks.length);
+  assert.ok(queued.some((task) => task.earliestDate === "2026-09-16" && task.scheduledDate > "2026-09-17"));
+});
+
+test("one oldest first review and one established overdue review are reserved", () => {
+  const tasks = [
+    { id: "newer", sourceType: "study", isFirstReview: true, studyDate: "2026-08-18", earliestDate: "2026-09-01", riskRank: 3 },
+    { id: "oldest", sourceType: "study", isFirstReview: true, studyDate: "2026-08-01", earliestDate: "2026-09-01", riskRank: 3 },
+    { id: "formal", sourceType: "study", earliestDate: "2026-09-05", riskRank: 4 },
+    { id: "urgent", sourceType: "study", earliestDate: "2026-09-17", riskRank: 0 },
+  ];
+  const queued = engine.scheduleReviewTasks(tasks, { today: "2026-09-17", studyLimit: 3 });
+  assert.deepEqual(queued.filter((task) => task.scheduledDate === "2026-09-17").map((task) => task.id),
+    ["oldest", "formal", "urgent"]);
+});
+
+test("retests cap only the next target, not the interval state", () => {
+  const rows = (a, b = null) => [
+    { date: "2026-09-17", score: a },
+    ...(b == null ? [] : [{ date: "2026-09-15", score: b }]),
+  ];
+  assert.equal(engine.recommendedIntervalDays(30, rows(49)), 1);
+  assert.equal(engine.recommendedIntervalDays(30, rows(60)), 3);
+  assert.equal(engine.recommendedIntervalDays(30, rows(74)), 7);
+  assert.equal(engine.recommendedIntervalDays(30, rows(78, 79)), 7);
+  assert.equal(engine.recommendedIntervalDays(30, rows(78, 82)), 30);
+  assert.equal(engine.recommendedIntervalDays(4, rows(74)), 4);
+  assert.equal(engine.recommendedIntervalDays(30, [rows(78)[0], { date: "2026-09-17", score: 70 }]), 30);
+  assert.equal(engine.recommendedIntervalDays(30, [{ date: "2026-09-18", score: null }]), 30);
+  assert.equal(engine.recommendedIntervalDays(30, [{ date: "2026-09-18", score: "" }]), 30);
+  assert.deepEqual(engine.intervalStateAfterReview({ currentIntervalIndex: 4 }, 74, 74),
+    { index: 5, interval: 30 });
+});
+
+test("postponed eligibility and exam day bound are respected", () => {
+  const queued = engine.scheduleReviewTasks([
+    { id: "postponed", sourceType: "study", earliestDate: "2026-09-19", riskRank: 0 },
+    { id: "late", sourceType: "study", earliestDate: "2026-09-20", riskRank: 0 },
+  ], { today: "2026-09-17", examDate: "2026-09-19" });
+  assert.deepEqual(queued.map((task) => [task.id, task.scheduledDate]), [["postponed", "2026-09-19"]]);
+});
+
+test("a restored study with lastReviewedAt is never treated as unreviewed", () => {
+  const task = { id: "restored", sourceType: "study", sourceId: "study", status: "pending" };
+  const result = engine.partitionFirstReviewTasks([task], [{ id: "study", lastReviewedAt: "2026-09-16" }]);
+  assert.equal(result.firstReview.length, 0);
+  assert.equal(result.formal.length, 1);
+});
+
 test("knowledge score combines learning and penalized mistakes", () => {
   const leaf = engine.leafKnowledgeSummary([90], [80, 80]);
   assert.deepEqual(leaf, {
